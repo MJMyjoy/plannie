@@ -257,6 +257,100 @@ body {
     .print-bar .bar-buttons { display: flex; gap: 8px; width: 100%; }
     .print-bar .bar-buttons button { flex: 1; padding: 12px 10px; font-size: 14px; }
 }
+
+/* ============ MOBILE RESPONSIVE ============ */
+@media screen and (max-width: 800px) {
+    body { background: #fff; }
+
+    /* -- Pages become fluid -- */
+    .page {
+        width: 100% !important; min-height: auto !important;
+        margin: 0 !important; box-shadow: none !important;
+        border-bottom: 6px solid var(--g100);
+    }
+
+    /* -- Cover -- */
+    .cover { min-height: auto !important; }
+    .cover-img { height: 55vw; }
+    .cover-overlay { height: 55vw; }
+    .cover-brand { top: 8vw; }
+    .cover-brand svg { width: 50px; height: 50px; }
+    .cover-brand h1 { font-size: 32px; }
+    .cover-brand .sub { font-size: 14px; }
+    .cover-bottom { padding: 6vw 5vw; }
+    .cover-tagline { font-size: 20px; margin-bottom: 4vw; }
+    .cover-bullets { font-size: 13px; }
+    .cover-bullets li { margin-bottom: 2vw; gap: 2vw; }
+    .cover-bullets li span.icon { font-size: 18px; }
+    .cover-havila { bottom: 2vw; right: 4vw; font-size: 10px; }
+
+    /* -- Section headers -- */
+    .section-header { padding: 4vw 5vw; gap: 3vw; }
+    .section-header .num { width: 32px; height: 32px; font-size: 16px; }
+    .section-header h2 { font-size: 17px; }
+
+    /* -- Problem page -- */
+    .problem-page { min-height: auto !important; }
+    .problem-img { height: 40vw; }
+    .problem-body { padding: 5vw; }
+    .problem-body h3 { font-size: 19px; margin-bottom: 3vw; }
+    .problem-body p { font-size: 14px; margin-bottom: 2vw; }
+    .problem-list li { padding: 3vw; font-size: 13px; gap: 3vw; margin-bottom: 2vw; }
+    .problem-list li .emoji { font-size: 20px; }
+    .big-answer { padding: 4vw; margin-top: 4vw; }
+    .big-answer h3 { font-size: 18px; }
+    .big-answer p { font-size: 13px; }
+
+    /* -- Tuto pages -- */
+    .tuto-page { min-height: auto !important; }
+    .tuto-body { padding: 4vw 5vw; }
+    .step-block { flex-direction: column; gap: 2vw; margin-bottom: 5vw; }
+    .step-num { width: 36px; height: 36px; font-size: 17px; margin-top: 0; }
+    .step-content h4 { font-size: 15px; }
+    .step-content p { font-size: 13px; }
+    .step-content .tip { font-size: 12px; padding: 3vw; }
+
+    /* -- Mockups fill width on mobile -- */
+    .mockup { max-width: 100% !important; padding: 4vw; margin: 2vw 0 3vw; }
+
+    /* -- Report page -- */
+    .report-page { min-height: auto !important; }
+    .report-img { height: 40vw; }
+    .report-body { padding: 4vw 5vw; }
+    .report-title { font-size: 18px; margin-bottom: 3vw; }
+    .report-card { padding: 3.5vw 4vw; margin-bottom: 2.5vw; }
+    .report-card .rc-label { font-size: 10px; }
+    .report-card .rc-value { font-size: 15px; }
+    .report-card .rc-detail { font-size: 11px; }
+
+    /* -- Feature grid: single column on mobile -- */
+    .feature-grid { grid-template-columns: 1fr !important; gap: 3vw; }
+    .feature-card { padding: 4vw; }
+    .feature-card .f-icon { font-size: 26px; }
+    .feature-card h4 { font-size: 14px; }
+    .feature-card p { font-size: 12px; }
+
+    /* -- CTA page -- */
+    .cta-page {
+        min-height: auto !important; padding: 10vw 6vw 8vw;
+    }
+    .cta-page svg { width: 60px; height: 60px; margin-bottom: 4vw; }
+    .cta-page h1 { font-size: 28px; margin-bottom: 2vw; }
+    .cta-page .cta-sub { font-size: 14px; margin-bottom: 6vw; max-width: 100%; }
+    .cta-box { padding: 5vw; margin-bottom: 6vw; max-width: 100%; }
+    .cta-box h3 { font-size: 15px; }
+    .cta-steps { font-size: 13px; }
+    .cta-steps li { margin-bottom: 2vw; gap: 2vw; }
+    .cta-steps li .sn { width: 24px; height: 24px; font-size: 12px; }
+    .cta-free { font-size: 24px; }
+    .cta-free-sub { font-size: 13px; margin-bottom: 6vw; }
+
+    /* -- Divider -- */
+    .page-divider { margin: 3vw 5vw; }
+
+    /* -- Bottom padding for fixed bar -- */
+    body { padding-bottom: 70px; }
+}
 </style>
 </head>
 <body>
