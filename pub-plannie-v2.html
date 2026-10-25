@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plannie v2 – Nouvelle pub</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+    background:#000;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;
+    overflow:hidden;gap:16px;
+}
+canvas{border-radius:16px;box-shadow:0 0 50px rgba(76,175,80,.2);max-width:95vw;max-height:80vh}
+@media(max-width:400px){canvas{border-radius:0}}
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.btn{padding:14px 28px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;display:flex;align-items:center;gap:8px}
+.btn-play{background:#2E7D32;color:#fff}.btn-play:hover{background:#388E3C}
+.btn-dl{background:#fff;color:#2E7D32}.btn-dl:hover{background:#E8F5E9}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.status{color:rgba(255,255,255,.5);font-size:13px;min-height:18px}
+</style>
+</head>
+<body>
+<canvas id="c" width="360" height="640"></canvas>
+<div class="controls">
+    <button class="btn btn-play" id="btnPlay" onclick="runAd(false)">▶ Lancer la pub</button>
+    <button class="btn btn-dl" id="btnDl" onclick="runAd(true)">📥 Télécharger la vidéo</button>
+</div>
+<div class="status" id="status"></div>
+
+<script>
+const W=360,H=640,FPS=30,DURATION=38000;
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const G900='#1B5E20',G800='#2E7D32',G600='#43A047',G500='#4CAF50',
+      G400='#66BB6A',G300='#81C784',G200='#A5D6A7',G100='#C8E6C9',G50='#E8F5E9';
+const GOLD='#F9A825',ORANGE='#EF6C00';
+
+// ============ HELPERS ============
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function easeOut(t){return 1-Math.pow(1-t,3)}
+function easeInOut(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2}
+function fadeUp(t,delay,dur=500){const p=clamp((t-delay)/dur,0,1);return{a:easeOut(p),y:25*(1-easeOut(p))}}
+function slideL(t,delay,dur=500){const p=clamp((t-delay)/dur,0,1);return{a:easeOut(p),x:-40*(1-easeOut(p))}}
+function popScale(t,delay,dur=400){const p=clamp((t-delay)/dur,0,1);const s=p<.7?p/.7*1.15:1.15-(p-.7)/.3*.15;return{a:Math.min(p*2,1),s}}
+
+function roundRect(x,y,w,h,r,fill,stroke){
+    ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+    if(fill){ctx.fillStyle=fill;ctx.fill()}
+    if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke();ctx.lineWidth=1}
+}
+
+function drawLogo(cx,cy,size,alpha=1){
+    ctx.save();ctx.globalAlpha=alpha;ctx.translate(cx,cy);
+    const s=size/80;ctx.scale(s,s);
+    ctx.fillStyle='rgba(255,255,255,0.9)';
+    ctx.beginPath();ctx.moveTo(0,18);ctx.bezierCurveTo(0,-2,14,-22,30,-32);
+    ctx.bezierCurveTo(18,-20,10,-4,8,16);ctx.closePath();ctx.fill();
+    ctx.fillStyle='rgba(200,230,201,0.8)';
+    ctx.beginPath();ctx.moveTo(0,18);ctx.bezierCurveTo(0,-2,-14,-22,-30,-32);
+    ctx.bezierCurveTo(-18,-20,-10,-4,-8,16);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#fff';roundRect(-2,16,4,16,2,'#fff');
+    ctx.restore();
+}
+
+function drawProgress(t){
+    ctx.fillStyle='rgba(255,255,255,0.1)';ctx.fillRect(0,H-3,W,3);
+    const grd=ctx.createLinearGradient(0,0,W*(t/DURATION),0);
+    grd.addColorStop(0,G400);grd.addColorStop(1,'#fff');
+    ctx.fillStyle=grd;ctx.fillRect(0,H-3,W*(t/DURATION),3);
+}
+
+function drawBadge(x,y,text,bg,fg='#fff'){
+    ctx.font='700 11px "Segoe UI",sans-serif';
+    const tw=ctx.measureText(text).width;
+    roundRect(x-tw/2-10,y-10,tw+20,22,11,bg);
+    ctx.fillStyle=fg;ctx.textAlign='center';
+    ctx.fillText(text,x,y+4);
+}
+
+function drawFeatureCard(x,y,w,h,icon,title,desc,alpha,offsetX=0){
+    ctx.globalAlpha=alpha;
+    ctx.save();ctx.translate(offsetX,0);
+    roundRect(x,y,w,h,14,'rgba(255,255,255,0.1)','rgba(255,255,255,0.2)');
+    ctx.font='32px sans-serif';ctx.textAlign='center';
+    ctx.fillText(icon,x+w/2,y+40);
+    ctx.fillStyle='#fff';ctx.font='700 16px "Segoe UI",sans-serif';
+    ctx.fillText(title,x+w/2,y+68);
+    ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+    // Word wrap desc
+    const words=desc.split(' ');let line='';let ly=y+88;
+    words.forEach(word=>{
+        const test=line+word+' ';
+        if(ctx.measureText(test).width>w-24&&line!==''){ctx.fillText(line.trim(),x+w/2,ly);ly+=16;line=word+' '}
+        else line=test;
+    });
+    ctx.fillText(line.trim(),x+w/2,ly);
+    ctx.restore();ctx.globalAlpha=1;
+}
+
+// ============ SCENES ============
+
+// S1: Grand opening (0-3500)
+function drawS1(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,'#0D3B14');grd.addColorStop(1,G900);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+
+    // Particles
+    for(let i=0;i<15;i++){
+        const px=(Math.sin(t/800+i*2.1)*0.4+0.5)*W;
+        const py=(Math.cos(t/600+i*1.7)*0.4+0.5)*H;
+        const sz=2+Math.sin(t/400+i)*2;
+        ctx.globalAlpha=0.15+Math.sin(t/500+i)*0.1;
+        ctx.beginPath();ctx.arc(px,py,sz,0,Math.PI*2);
+        ctx.fillStyle=G400;ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Logo with scale-in
+    const lp=popScale(t,200,700);
+    if(lp.a>0) drawLogo(W/2,H/2-100,80*lp.s,lp.a);
+
+    // "Plannie" name
+    const fn=fadeUp(t,400,600);
+    ctx.globalAlpha=fn.a;ctx.fillStyle='#fff';
+    ctx.font='800 48px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Plannie',W/2,H/2-10+fn.y);
+
+    // Badge "NOUVEAU"
+    const fb=fadeUp(t,800,400);
+    if(fb.a>0){
+        ctx.globalAlpha=fb.a;
+        drawBadge(W/2,H/2+20+fb.y,'✨ NOUVEAU ✨',GOLD,'#333');
+    }
+
+    // Subtitle
+    const fs=fadeUp(t,1200,500);
+    ctx.globalAlpha=fs.a;ctx.fillStyle=G200;
+    ctx.font='400 18px "Segoe UI",sans-serif';
+    ctx.fillText('vient de grandir !',W/2,H/2+60+fs.y);
+    ctx.font='400 14px "Segoe UI",sans-serif';
+    ctx.fillText('Découvre les nouvelles fonctionnalités',W/2,H/2+85+fs.y);
+    ctx.globalAlpha=1;
+}
+
+// S2: Quick recap of basics (3500-7500)
+function drawS2(t){
+    ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Tu connais déjà Plannie ?',W/2,60+ft.y);
+    ctx.globalAlpha=1;
+
+    const basics=[
+        {icon:'📊',text:'Rapport complet en 1 seconde',d:400},
+        {icon:'📄',text:'PDF professionnel automatique',d:700},
+        {icon:'💰',text:'Caisse totale + articles gagnants',d:1000},
+        {icon:'🔒',text:'Données sauvegardées même éteint',d:1300},
+        {icon:'💚',text:'100% gratuit, sans internet',d:1600},
+    ];
+    basics.forEach((b,i)=>{
+        const sl=slideL(t,b.d,500);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const by=120+i*80;
+        ctx.beginPath();ctx.arc(56+sl.x,by,22,0,Math.PI*2);
+        ctx.fillStyle='rgba(76,175,80,0.15)';ctx.fill();
+        ctx.font='22px sans-serif';ctx.textAlign='center';
+        ctx.fillText(b.icon,56+sl.x,by+8);
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='600 15px "Segoe UI",sans-serif';
+        ctx.fillText(b.text,90+sl.x,by+6);
+    });
+    ctx.globalAlpha=1;
+
+    // "Et maintenant..."
+    const fe=fadeUp(t,2800,500);
+    ctx.globalAlpha=fe.a;ctx.fillStyle=G400;
+    ctx.font='700 22px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Et maintenant... 🚀',W/2,H-80+fe.y);
+    ctx.globalAlpha=1;
+}
+
+// S3: Feature 1 - Approvisionnement (7500-13000)
+function drawS3(t){
+    const grd=ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,G900);grd.addColorStop(1,'#0D3B14');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+
+    // Badge
+    const fb=popScale(t,200,400);
+    if(fb.a>0){ctx.globalAlpha=fb.a;drawBadge(W/2,40,'NOUVEAU',GOLD,'#333')}
+
+    // Icon
+    const fi=popScale(t,400,500);
+    ctx.globalAlpha=fi.a;ctx.font=`${60*fi.s}px sans-serif`;ctx.textAlign='center';
+    ctx.fillText('📦',W/2,120);ctx.globalAlpha=1;
+
+    // Title
+    const ft=fadeUp(t,600,500);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 22px "Segoe UI",sans-serif';
+    ctx.fillText('Approvisionnement',W/2,170+ft.y);
+    ctx.font='700 22px "Segoe UI",sans-serif';
+    ctx.fillText('en plein milieu de la journée',W/2,198+ft.y);
+    ctx.globalAlpha=1;
+
+    // Benefits
+    const benefits=[
+        {icon:'➕',text:'Ajoute du stock à tes articles',d:1200},
+        {icon:'🆕',text:'Ajoute de nouveaux articles',d:1700},
+        {icon:'💵',text:'La caisse n\'est pas touchée',d:2200},
+    ];
+    benefits.forEach((b,i)=>{
+        const sl=slideL(t,b.d,500);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const by=260+i*70;
+        roundRect(30+sl.x,by-20,W-60,50,10,'rgba(255,255,255,0.08)');
+        ctx.font='20px sans-serif';ctx.textAlign='center';
+        ctx.fillText(b.icon,60+sl.x,by+10);
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='500 14px "Segoe UI",sans-serif';
+        ctx.fillText(b.text,85+sl.x,by+8);
+    });
+    ctx.globalAlpha=1;
+
+    // Phone mockup preview
+    const fm=fadeUp(t,3200,600);
+    if(fm.a>0){
+        ctx.globalAlpha=fm.a;
+        roundRect(90,465+fm.y,180,130,16,'rgba(255,255,255,0.06)','rgba(255,255,255,0.15)');
+        ctx.fillStyle=G400;ctx.font='700 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('🌿 Plannie',W/2,490+fm.y);
+        roundRect(110,500+fm.y,140,26,6,'rgba(255,255,255,0.08)');
+        ctx.fillStyle='#fff';ctx.font='600 10px "Segoe UI",sans-serif';
+        ctx.fillText('📦 Approvisionner',W/2,517+fm.y);
+        roundRect(110,532+fm.y,140,22,6,'rgba(76,175,80,0.2)');
+        ctx.fillStyle=G300;ctx.font='400 10px "Segoe UI",sans-serif';
+        ctx.fillText('Wax (pagne) — 10 pcs',W/2,547+fm.y);
+        roundRect(110,558+fm.y,140,22,6,'rgba(76,175,80,0.2)');
+        ctx.fillText('Perruques — 5 pcs',W/2,573+fm.y);
+    }
+    ctx.globalAlpha=1;
+}
+
+// S4: Feature 2 - FIFO (13000-18000)
+function drawS4(t){
+    ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+
+    const fb=popScale(t,200,400);
+    if(fb.a>0){ctx.globalAlpha=fb.a;drawBadge(W/2,40,'NOUVEAU',GOLD,'#333')}
+
+    const fi=popScale(t,400,500);
+    ctx.globalAlpha=fi.a;ctx.font=`${60*fi.s}px sans-serif`;ctx.textAlign='center';
+    ctx.fillText('🔄',W/2,120);ctx.globalAlpha=1;
+
+    const ft=fadeUp(t,600,500);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 22px "Segoe UI",sans-serif';
+    ctx.fillText('Méthode FIFO',W/2,170+ft.y);
+    ctx.fillStyle=G300;ctx.font='400 16px "Segoe UI",sans-serif';
+    ctx.fillText('Premier entré, premier sorti',W/2,196+ft.y);
+    ctx.globalAlpha=1;
+
+    // Visual FIFO explanation
+    const fd=fadeUp(t,1200,500);
+    if(fd.a>0){
+        ctx.globalAlpha=fd.a;ctx.save();ctx.translate(0,fd.y);
+        // Batch 1 (old)
+        roundRect(30,240,140,80,10,G800);
+        ctx.fillStyle='#fff';ctx.font='700 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Lot 1 (ancien)',100,265);
+        ctx.font='400 11px "Segoe UI",sans-serif';ctx.fillStyle=G200;
+        ctx.fillText('5 pcs × 5.000 FC',100,285);
+        ctx.fillText('→ Vendu en premier ✅',100,305);
+        // Arrow
+        ctx.fillStyle=G400;ctx.font='24px sans-serif';
+        ctx.fillText('→',185,280);
+        // Batch 2 (new)
+        roundRect(195,240,140,80,10,'rgba(255,255,255,0.08)','rgba(255,255,255,0.2)');
+        ctx.fillStyle='#fff';ctx.font='700 12px "Segoe UI",sans-serif';
+        ctx.fillText('Lot 2 (nouveau)',265,265);
+        ctx.font='400 11px "Segoe UI",sans-serif';ctx.fillStyle='#aaa';
+        ctx.fillText('5 pcs × 6.000 FC',265,285);
+        ctx.fillText('Attend son tour ⏳',265,305);
+        ctx.restore();
+    }
+
+    // Benefits
+    const items=[
+        {text:'Bénéfice calculé sur le vrai prix d\'achat',d:2200},
+        {text:'Chaque lot est suivi individuellement',d:2600},
+        {text:'Rapport PDF détaillé avec coûts FIFO',d:3000},
+    ];
+    items.forEach((it,i)=>{
+        const sl=fadeUp(t,it.d,500);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        ctx.fillStyle='#fff';ctx.font='500 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('✅ '+it.text,W/2,380+i*35+sl.y);
+    });
+    ctx.globalAlpha=1;
+
+    // Bottom emphasis
+    const fe=fadeUp(t,3800,400);
+    ctx.globalAlpha=fe.a;ctx.fillStyle=GOLD;
+    ctx.font='700 15px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Précision maximale sur tes gains !',W/2,520+fe.y);
+    ctx.globalAlpha=1;
+}
+
+// S5: Feature 3 - Cancel loss sale (18000-23000)
+function drawS5(t){
+    const grd=ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,'#3E2723');grd.addColorStop(1,'#1A1A1A');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+
+    const fb=popScale(t,200,400);
+    if(fb.a>0){ctx.globalAlpha=fb.a;drawBadge(W/2,40,'NOUVEAU',GOLD,'#333')}
+
+    const fi=popScale(t,400,500);
+    ctx.globalAlpha=fi.a;ctx.font=`${60*fi.s}px sans-serif`;ctx.textAlign='center';
+    ctx.fillText('❌',W/2,120);ctx.globalAlpha=1;
+
+    const ft=fadeUp(t,600,500);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 22px "Segoe UI",sans-serif';
+    ctx.fillText('Annulation de vente',W/2,170+ft.y);
+    ctx.fillStyle=ORANGE;ctx.font='700 18px "Segoe UI",sans-serif';
+    ctx.fillText('à perte',W/2,198+ft.y);
+    ctx.globalAlpha=1;
+
+    // Simulated toast + cancel button
+    const fm=fadeUp(t,1400,600);
+    if(fm.a>0){
+        ctx.globalAlpha=fm.a;ctx.save();ctx.translate(0,fm.y);
+        // Orange toast
+        roundRect(30,250,W-60,55,10,ORANGE);
+        ctx.fillStyle='#fff';ctx.font='600 13px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('⚠️ Vente à perte : -2.000 FC (-15%)',W/2,282);
+        // Cancel button with animated border
+        const borderAlpha=clamp(1-(t-1400)/8000,0,1);
+        const btnY=320;
+        roundRect(80,btnY,W-160,44,8,`rgba(255,255,255,0.1)`,`rgba(255,${Math.floor(165*borderAlpha)},0,${borderAlpha})`);
+        ctx.fillStyle=`rgba(239,108,0,${0.5+borderAlpha*0.5})`;
+        ctx.font='700 14px "Segoe UI",sans-serif';
+        ctx.fillText('❌ Annuler cette vente',W/2,btnY+28);
+        // Timer bar
+        const barWidth=(W-200)*borderAlpha;
+        roundRect(100,btnY+54,W-200,3,2,'rgba(255,255,255,0.15)');
+        if(barWidth>0) roundRect(100,btnY+54,barWidth,3,2,ORANGE);
+        ctx.restore();
+    }
+
+    // Explanation text
+    const fe=fadeUp(t,2600,500);
+    ctx.globalAlpha=fe.a;ctx.fillStyle='#fff';
+    ctx.font='500 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Tu as 10 secondes pour annuler',W/2,440+fe.y);
+    ctx.fillText('une vente à perte !',W/2,462+fe.y);
+    ctx.globalAlpha=1;
+
+    const fg=fadeUp(t,3200,500);
+    ctx.globalAlpha=fg.a;ctx.fillStyle=G400;
+    ctx.font='600 15px "Segoe UI",sans-serif';
+    ctx.fillText('Protège ton argent 💪',W/2,520+fg.y);
+    ctx.globalAlpha=1;
+}
+
+// S6: PDF upgrade (23000-27500)
+function drawS6(t){
+    ctx.fillStyle='#0D3B14';ctx.fillRect(0,0,W,H);
+
+    const fb=popScale(t,200,400);
+    if(fb.a>0){ctx.globalAlpha=fb.a;drawBadge(W/2,40,'AMÉLIORÉ',G500,'#fff')}
+
+    const fi=popScale(t,400,500);
+    ctx.globalAlpha=fi.a;ctx.font=`${60*fi.s}px sans-serif`;ctx.textAlign='center';
+    ctx.fillText('📄',W/2,120);ctx.globalAlpha=1;
+
+    const ft=fadeUp(t,600,500);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 22px "Segoe UI",sans-serif';
+    ctx.fillText('PDF encore plus complet',W/2,170+ft.y);
+    ctx.globalAlpha=1;
+
+    // PDF sections preview
+    const sections=[
+        {icon:'📋',title:'Données initiales',desc:'Articles + prix d\'achat',bg:'rgba(46,125,50,0.3)',d:1200},
+        {icon:'📦',title:'Approvisionnements',desc:'Chaque ajout tracé',bg:'rgba(249,168,37,0.2)',d:1700},
+        {icon:'🛒',title:'Ventes détaillées',desc:'Coût FIFO par vente',bg:'rgba(76,175,80,0.2)',d:2200},
+        {icon:'📊',title:'Rapport Plannie',desc:'Verdicts + classement',bg:'rgba(255,255,255,0.08)',d:2700},
+    ];
+    sections.forEach((s,i)=>{
+        const sl=slideL(t,s.d,500);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const sy=230+i*85;
+        roundRect(30+sl.x,sy,W-60,72,10,s.bg);
+        ctx.font='26px sans-serif';ctx.textAlign='center';
+        ctx.fillText(s.icon,70+sl.x,sy+42);
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='700 15px "Segoe UI",sans-serif';
+        ctx.fillText(s.title,100+sl.x,sy+30);
+        ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+        ctx.fillText(s.desc,100+sl.x,sy+50);
+    });
+    ctx.globalAlpha=1;
+
+    const fe=fadeUp(t,3600,400);
+    ctx.globalAlpha=fe.a;ctx.fillStyle='#fff';
+    ctx.font='600 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Se télécharge automatiquement ! ⚡',W/2,600+fe.y);
+    ctx.globalAlpha=1;
+}
+
+// S7: All benefits together (27500-32500)
+function drawS7(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,G900);grd.addColorStop(1,'#388E3C');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Tout ça dans Plannie ! 🎉',W/2,50+ft.y);
+    ctx.globalAlpha=1;
+
+    const items=[
+        {icon:'📦',text:'Approvisionne à tout moment',clr:G200,d:300},
+        {icon:'🔄',text:'FIFO : bénéfice précis',clr:G200,d:550},
+        {icon:'❌',text:'Annule les ventes à perte',clr:G200,d:800},
+        {icon:'📄',text:'PDF ultra-détaillé',clr:G200,d:1050},
+        {icon:'📊',text:'Rapport instantané',clr:G200,d:1300},
+        {icon:'🔒',text:'Mémoire même téléphone éteint',clr:G200,d:1550},
+        {icon:'⚡',text:'5 secondes par vente',clr:G200,d:1800},
+        {icon:'💚',text:'Gratuit — pas d\'abonnement',clr:GOLD,d:2050},
+    ];
+    items.forEach((it,i)=>{
+        const sl=slideL(t,it.d,400);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const iy=100+i*62;
+        ctx.beginPath();ctx.arc(50+sl.x,iy,20,0,Math.PI*2);
+        ctx.fillStyle='rgba(255,255,255,0.1)';ctx.fill();
+        ctx.font='20px sans-serif';ctx.textAlign='center';
+        ctx.fillText(it.icon,50+sl.x,iy+7);
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='600 15px "Segoe UI",sans-serif';
+        ctx.fillText(it.text,82+sl.x,iy+6);
+    });
+    ctx.globalAlpha=1;
+
+    // Punchline
+    const fp=fadeUp(t,3500,500);
+    ctx.globalAlpha=fp.a;ctx.fillStyle='#fff';
+    ctx.font='700 17px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Comme un comptable gratuit ! 📊',W/2,H-40+fp.y);
+    ctx.globalAlpha=1;
+}
+
+// S8: CTA (32500-38000)
+function drawS8(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,G800);grd.addColorStop(1,G900);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+
+    // Subtle particles
+    for(let i=0;i<10;i++){
+        const px=(Math.sin(t/900+i*2.5)*0.3+0.5)*W;
+        const py=(Math.cos(t/700+i*1.9)*0.3+0.5)*H;
+        ctx.globalAlpha=0.08;ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);
+        ctx.fillStyle='#fff';ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Logo
+    const fl=fadeUp(t,100,500);
+    drawLogo(W/2,H/2-150,70*easeOut(clamp(t/600,0,1)),fl.a);
+
+    // Name
+    const fn=fadeUp(t,200,500);
+    ctx.globalAlpha=fn.a;ctx.fillStyle='#fff';
+    ctx.font='800 44px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Plannie',W/2,H/2-55+fn.y);
+
+    // Version badge
+    const fv=fadeUp(t,400,400);
+    if(fv.a>0){ctx.globalAlpha=fv.a;drawBadge(W/2,H/2-25+fv.y,'v2.0 — Plus puissant que jamais',G500)}
+
+    // Phrase
+    const fp=fadeUp(t,600,500);
+    ctx.globalAlpha=fp.a;ctx.fillStyle=G200;
+    ctx.font='400 17px "Segoe UI",sans-serif';
+    ctx.fillText('Ton commerce mérite',W/2,H/2+20+fp.y);
+    ctx.fillText('le meilleur outil. 💚',W/2,H/2+45+fp.y);
+    ctx.globalAlpha=1;
+
+    // Button
+    const fb=fadeUp(t,900,400);
+    if(fb.a>0){
+        ctx.globalAlpha=fb.a;
+        const bw=250,bh=52,bx=(W-bw)/2,by=H/2+80+fb.y;
+        const pulse=0.5+0.5*Math.sin(t/200);
+        ctx.shadowColor=`rgba(255,255,255,${0.15+0.1*pulse})`;
+        ctx.shadowBlur=15+8*pulse;
+        roundRect(bx,by,bw,bh,26,'#fff');
+        ctx.shadowColor='transparent';ctx.shadowBlur=0;
+        ctx.fillStyle=G800;ctx.font='700 17px "Segoe UI",sans-serif';
+        ctx.fillText('🌿 Essaie maintenant !',W/2,by+34);
+    }
+
+    // Gratuit
+    const ff=fadeUp(t,1200,400);
+    ctx.globalAlpha=ff.a;ctx.fillStyle='rgba(255,255,255,0.5)';
+    ctx.font='400 13px "Segoe UI",sans-serif';
+    ctx.fillText('Gratuit • Sans inscription • Sans internet',W/2,H/2+165+ff.y);
+
+    // Testimonial
+    const ft2=fadeUp(t,1800,500);
+    ctx.globalAlpha=ft2.a*0.6;ctx.fillStyle='#fff';
+    ctx.font='italic 13px "Segoe UI",sans-serif';
+    ctx.fillText('"Maintenant je sais exactement',W/2,H/2+210+ft2.y);
+    ctx.fillText('quel article me rapporte !"',W/2,H/2+228+ft2.y);
+    ctx.font='400 11px "Segoe UI",sans-serif';ctx.globalAlpha=ft2.a*0.4;
+    ctx.fillText('— Plamedie, Lubumbashi',W/2,H/2+250+ft2.y);
+
+    // Havila
+    const fh=fadeUp(t,2200,400);
+    ctx.globalAlpha=fh.a*0.3;ctx.fillStyle='#fff';
+    ctx.font='400 11px "Segoe UI",sans-serif';
+    ctx.fillText('© Plannie 2026 by Havila',W/2,H-25+fh.y);
+    ctx.globalAlpha=1;
+}
+
+// ============ MASTER RENDER ============
+const scenes=[
+    {start:0,    end:3500,  draw:drawS1},
+    {start:3500, end:7500,  draw:drawS2},
+    {start:7500, end:13000, draw:drawS3},
+    {start:13000,end:18000, draw:drawS4},
+    {start:18000,end:23000, draw:drawS5},
+    {start:23000,end:27500, draw:drawS6},
+    {start:27500,end:32500, draw:drawS7},
+    {start:32500,end:38000, draw:drawS8},
+];
+
+function renderFrame(gt){
+    ctx.save();ctx.clearRect(0,0,W,H);
+    for(const sc of scenes){
+        if(gt>=sc.start&&gt<sc.end){sc.draw(gt-sc.start);break}
+    }
+    if(gt>=38000)drawS8(5500);
+    drawProgress(gt);
+    ctx.restore();
+}
+
+// ============ AUDIO ============
+let actx,masterGain,audioDest;
+function initAudio(rec){
+    actx=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=actx.createGain();masterGain.gain.value=0.8;
+    masterGain.connect(actx.destination);
+    if(rec){audioDest=actx.createMediaStreamDestination();masterGain.connect(audioDest)}
+}
+function playTone(f,dur,type='sine',vol=0.15){
+    if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();
+    o.type=type;o.frequency.value=f;g.gain.setValueAtTime(vol,actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+dur);
+    o.connect(g);g.connect(masterGain);o.start();o.stop(actx.currentTime+dur);
+}
+function sfxWhoosh(){
+    if(!actx)return;const n=actx.sampleRate*0.35,buf=actx.createBuffer(1,n,actx.sampleRate),d=buf.getChannelData(0);
+    for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3)*0.25;
+    const s=actx.createBufferSource();s.buffer=buf;
+    const bp=actx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=600;bp.Q.value=0.8;
+    bp.frequency.exponentialRampToValueAtTime(2200,actx.currentTime+0.3);
+    s.connect(bp);bp.connect(masterGain);s.start();
+}
+function sfxDing(){playTone(880,.4);setTimeout(()=>playTone(1320,.5,'sine',.1),80);setTimeout(()=>playTone(1760,.5,'sine',.06),160)}
+function sfxPop(){playTone(600,.1,'sine',.12);setTimeout(()=>playTone(900,.08,'sine',.08),50)}
+function sfxSuccess(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>playTone(f,.3,'sine',.1),i*100))}
+function sfxRise(){
+    if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();o.type='sine';
+    o.frequency.setValueAtTime(200,actx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(800,actx.currentTime+0.6);
+    g.gain.setValueAtTime(0.08,actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+0.7);
+    o.connect(g);g.connect(masterGain);o.start();o.stop(actx.currentTime+0.7);
+}
+function sfxClick(){playTone(1200,.05,'square',.06)}
+function sfxBeat(){playTone(70,.08,'sine',.03)}
+let bgInt;
+function startBg(){let b=0;bgInt=setInterval(()=>{sfxBeat();b++},500)}
+function stopBg(){clearInterval(bgInt)}
+
+function scheduleSounds(){
+    const ev=[
+        [0,sfxRise],[200,sfxDing],[800,sfxPop],
+        [3500,sfxWhoosh],[3900,sfxClick],[4200,sfxClick],[4500,sfxClick],[4800,sfxClick],[5100,sfxClick],
+        [6300,sfxPop],
+        [7500,sfxWhoosh],[7700,sfxDing],[8100,sfxPop],
+        [8700,sfxClick],[9200,sfxClick],[9700,sfxClick],[10700,sfxPop],
+        [13000,sfxWhoosh],[13200,sfxDing],[13600,sfxPop],
+        [14200,sfxClick],[14700,sfxClick],[15200,sfxClick],[16800,sfxPop],
+        [18000,sfxWhoosh],[18400,sfxPop],[19400,sfxPop],
+        [20600,sfxClick],[21200,sfxPop],
+        [23000,sfxWhoosh],[23200,sfxDing],[24200,sfxPop],[24700,sfxPop],[25200,sfxPop],[25700,sfxPop],
+        [26600,sfxClick],
+        [27500,sfxWhoosh],[27800,sfxClick],[28050,sfxClick],[28300,sfxClick],[28550,sfxClick],
+        [28800,sfxClick],[29050,sfxClick],[29300,sfxClick],[29550,sfxClick],
+        [31000,sfxPop],
+        [32500,sfxRise],[32700,sfxDing],[33400,sfxPop],[33900,sfxSuccess],
+    ];
+    ev.forEach(([t,fn])=>setTimeout(fn,t));
+    setTimeout(stopBg,32500);
+}
+
+// ============ PLAYBACK & RECORDING ============
+let isRunning=false;
+function runAd(download){
+    if(isRunning)return;isRunning=true;
+    const btnP=document.getElementById('btnPlay'),btnD=document.getElementById('btnDl'),st=document.getElementById('status');
+    btnP.disabled=true;btnD.disabled=true;
+    initAudio(download);
+    let recorder,chunks=[];
+    if(download){
+        st.textContent='⏺ Enregistrement en cours... 38 secondes';
+        const vs=cv.captureStream(FPS);
+        if(audioDest)audioDest.stream.getAudioTracks().forEach(t=>vs.addTrack(t));
+        const mt=MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')?'video/webm;codecs=vp9,opus':
+                  MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')?'video/webm;codecs=vp8,opus':'video/webm';
+        recorder=new MediaRecorder(vs,{mimeType:mt,videoBitsPerSecond:2500000});
+        recorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+        recorder.onstop=()=>{
+            const blob=new Blob(chunks,{type:'video/webm'});const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');a.href=url;a.download='Plannie_v2_Pub.webm';
+            document.body.appendChild(a);a.click();a.remove();
+            setTimeout(()=>URL.revokeObjectURL(url),5000);
+            st.textContent='✅ Vidéo téléchargée ! (Plannie_v2_Pub.webm)';
+        };
+        recorder.start();
+    }else{st.textContent='▶ Lecture en cours...'}
+    startBg();scheduleSounds();
+    const t0=performance.now();
+    function loop(now){
+        const elapsed=now-t0;renderFrame(Math.min(elapsed,DURATION));
+        if(elapsed<DURATION+500){requestAnimationFrame(loop)}
+        else{
+            if(recorder&&recorder.state==='recording')recorder.stop();
+            isRunning=false;btnP.disabled=false;btnD.disabled=false;
+            if(!download)st.textContent='✅ Lecture terminée';
+        }
+    }
+    requestAnimationFrame(loop);
+}
+renderFrame(0);
+</script>
+</body>
+</html>
