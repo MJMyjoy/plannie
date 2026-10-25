@@ -84,9 +84,18 @@
             background:linear-gradient(135deg,var(--g800),var(--g600));
             color:#fff;border:none;border-radius:var(--r);font-size:16px;font-weight:600;
             cursor:pointer;transition:all var(--tr);
-            box-shadow:0 4px 14px rgba(46,125,50,.3);
+            box-shadow:0 4px 14px rgba(46,125,50,.3);font-family:inherit;
         }
         .btn-end:hover{box-shadow:0 6px 22px rgba(46,125,50,.4);transform:translateY(-1px)}
+
+        .btn-restock{
+            padding:12px 20px;
+            background:linear-gradient(135deg,var(--g800),var(--g600));
+            color:#fff;border:none;border-radius:var(--r);font-size:14px;font-weight:600;
+            cursor:pointer;transition:all var(--tr);
+            box-shadow:0 4px 14px rgba(46,125,50,.3);font-family:inherit;
+        }
+        .btn-restock:hover{box-shadow:0 6px 22px rgba(46,125,50,.4);transform:translateY(-1px)}
 
         /* ============ INPUTS ============ */
         .input-group{margin-bottom:24px;width:100%}
@@ -140,8 +149,43 @@
             text-align:center;max-width:400px;
         }
         .toast.loss{background:var(--orange)}
+        .toast.info{background:#1565C0}
         @keyframes toastIn{from{opacity:0;transform:translateY(-20px)}to{opacity:1;transform:translateY(0)}}
         @keyframes toastOut{from{opacity:1}to{opacity:0;transform:translateY(-10px)}}
+
+        /* ============ CANCEL OVERLAY ============ */
+        #cancel-overlay{
+            position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:10000;
+            display:none;flex-direction:column;align-items:center;gap:10px;
+        }
+        #cancel-overlay.show{display:flex;animation:toastIn .3s ease}
+        .cancel-card{
+            background:var(--orange);color:#fff;padding:16px 24px 12px;border-radius:var(--r);
+            box-shadow:var(--shadow-lg);text-align:center;max-width:400px;
+        }
+        .cancel-card .cancel-msg{font-size:14px;font-weight:500;margin-bottom:14px}
+        .btn-cancel{
+            padding:10px 28px;background:rgba(255,255,255,.15);color:#fff;
+            border:3px solid #fff;border-radius:8px;font-size:15px;font-weight:700;
+            cursor:pointer;font-family:inherit;transition:transform .15s;
+            animation:borderErase 10s linear forwards;
+        }
+        .btn-cancel:hover{transform:scale(1.05)}
+        @keyframes borderErase{
+            0%{border-color:rgba(255,255,255,1);box-shadow:0 0 8px rgba(255,255,255,.3)}
+            50%{border-color:rgba(255,255,255,.5);box-shadow:0 0 4px rgba(255,255,255,.15)}
+            90%{border-color:rgba(255,255,255,.1);box-shadow:none}
+            100%{border-color:transparent;opacity:.3}
+        }
+        .cancel-timer{
+            width:100%;height:3px;background:rgba(255,255,255,.25);
+            border-radius:2px;margin-top:10px;overflow:hidden;
+        }
+        .cancel-timer-fill{
+            height:100%;background:#fff;border-radius:2px;
+            animation:timerShrink 10s linear forwards;
+        }
+        @keyframes timerShrink{from{width:100%}to{width:0%}}
 
         /* ============ SELLING ============ */
         .sell-line{
@@ -172,6 +216,11 @@
         .confirm-section{display:flex;gap:10px;margin-top:16px}
         .confirm-section .btn{flex:1}
 
+        /* ============ MENU HEADER ============ */
+        .menu-header{
+            width:100%;display:flex;justify-content:flex-end;margin-bottom:14px;
+        }
+
         /* ============ FOOTER ============ */
         footer{
             width:100%;text-align:center;padding:20px;font-size:13px;
@@ -196,14 +245,13 @@
             .logo-text{font-size:26px}
         }
     </style>
-    <script data-goatcounter="https://myjoy.goatcounter.com/count"
-        async src="//gc.zgo.at/count.js"></script>
 </head>
 <body>
 
 <div id="app"></div>
 <footer>© Plannie 2026 by Havila</footer>
 <div id="toast-container"></div>
+<div id="cancel-overlay"></div>
 
 <script>
 // ================================================================
@@ -230,12 +278,34 @@ const LOGO_SVG = `
 //  STATE MANAGEMENT
 // ================================================================
 function freshState() {
-    return { phase:'welcome', productCount:0, currentIndex:0, products:[], sales:{} };
+    return { phase:'welcome', productCount:0, currentIndex:0, products:[], sales:{}, restocks:[] };
 }
+
+function migrateState(d) {
+    // Ensure restocks array
+    if (!d.restocks) d.restocks = [];
+    // Migrate products to batch format
+    if (d.products) {
+        d.products.forEach((p, i) => {
+            if (!p.batches) {
+                p.batches = [{ quantity: p.quantity, unitPrice: p.unitPrice, purchasePrice: p.purchasePrice }];
+            }
+            // Migrate old sales to have batchConsumptions
+            const sales = d.sales[i] || [];
+            sales.forEach(s => {
+                if (!s.batchConsumptions) {
+                    s.batchConsumptions = [{ batchIdx: 0, qty: s.quantity, unitPrice: p.batches[0].unitPrice }];
+                }
+            });
+        });
+    }
+    return d;
+}
+
 function loadState() {
     try {
         const d = JSON.parse(localStorage.getItem(STORAGE_KEY));
-        if (d && Array.isArray(d.products) && d.products.length >= 0) return d;
+        if (d && Array.isArray(d.products) && d.products.length >= 0) return migrateState(d);
     } catch(_){}
     return null;
 }
@@ -251,29 +321,115 @@ function esc(s) { const d=document.createElement('div'); d.textContent=s; return
 function formatFC(n) { return Number(n).toLocaleString('fr-FR') + ' FC'; }
 function formatPct(v) { return (v>=0?'+':'') + v.toFixed(1) + '%'; }
 
-function showToast(msg, bad=false) {
+function showToast(msg, type='success') {
     const c = document.getElementById('toast-container');
     const t = document.createElement('div');
-    t.className = 'toast' + (bad?' loss':'');
+    const cls = type==='loss' ? ' loss' : type==='info' ? ' info' : '';
+    t.className = 'toast' + cls;
     t.textContent = msg;
     c.appendChild(t);
     setTimeout(()=>t.remove(), 3200);
 }
 
+// ================================================================
+//  FIFO HELPERS
+// ================================================================
+function getBatchSold(pIdx, bIdx) {
+    const sales = S.sales[pIdx] || [];
+    let sold = 0;
+    sales.forEach(s => {
+        if (s.batchConsumptions) {
+            s.batchConsumptions.forEach(bc => {
+                if (bc.batchIdx === bIdx) sold += bc.qty;
+            });
+        }
+    });
+    return sold;
+}
+
+function getBatchRemaining(pIdx, bIdx) {
+    return S.products[pIdx].batches[bIdx].quantity - getBatchSold(pIdx, bIdx);
+}
+
+function consumeFIFO(pIdx, qtyToSell) {
+    const p = S.products[pIdx];
+    const consumptions = [];
+    let remaining = qtyToSell;
+    for (let b = 0; b < p.batches.length && remaining > 0; b++) {
+        const batchRem = getBatchRemaining(pIdx, b);
+        const take = Math.min(remaining, batchRem);
+        if (take > 0) {
+            consumptions.push({ batchIdx: b, qty: take, unitPrice: p.batches[b].unitPrice });
+            remaining -= take;
+        }
+    }
+    return consumptions;
+}
+
 function stats(i) {
     const p = S.products[i], sl = S.sales[i] || [];
-    let rev=0, qtySold=0;
-    sl.forEach(s=>{ rev+=s.price; qtySold+=s.quantity; });
-    const cost = p.unitPrice * qtySold;
-    const gain = rev - cost;
-    const pct  = cost>0 ? (gain/cost)*100 : 0;
-    return { rev, qtySold, cost, gain, pct, remaining: p.quantity - qtySold };
+    let rev = 0, qtySold = 0, totalCost = 0;
+    sl.forEach(s => {
+        rev += s.price;
+        qtySold += s.quantity;
+        if (s.batchConsumptions) {
+            s.batchConsumptions.forEach(bc => { totalCost += bc.qty * bc.unitPrice; });
+        } else {
+            totalCost += s.quantity * p.batches[0].unitPrice;
+        }
+    });
+    const totalQuantity = p.batches.reduce((s, b) => s + b.quantity, 0);
+    const gain = rev - totalCost;
+    const pct = totalCost > 0 ? (gain / totalCost) * 100 : 0;
+    return { rev, qtySold, cost: totalCost, gain, pct, remaining: totalQuantity - qtySold };
+}
+
+// ================================================================
+//  CANCEL SALE LOGIC
+// ================================================================
+let _cancelTimer = null;
+
+function showCancelOverlay(msg, productIdx, saleIndex) {
+    clearCancelOverlay();
+    const ov = document.getElementById('cancel-overlay');
+    ov.innerHTML = `
+        <div class="cancel-card">
+            <div class="cancel-msg">${msg}</div>
+            <button class="btn-cancel" id="btnCancelSale">❌ Annuler cette vente</button>
+            <div class="cancel-timer"><div class="cancel-timer-fill"></div></div>
+        </div>`;
+    ov.classList.add('show');
+
+    document.getElementById('btnCancelSale').onclick = () => {
+        // Reverse the sale completely
+        const sales = S.sales[productIdx];
+        if (sales && saleIndex >= 0 && saleIndex < sales.length) {
+            sales.splice(saleIndex, 1);
+            saveState();
+            showToast('Vente annulée avec succès !');
+            clearCancelOverlay();
+            _sellingIdx = null;
+            renderMainMenu();
+        }
+    };
+
+    _cancelTimer = setTimeout(() => {
+        clearCancelOverlay();
+    }, 10000);
+}
+
+function clearCancelOverlay() {
+    if (_cancelTimer) { clearTimeout(_cancelTimer); _cancelTimer = null; }
+    const ov = document.getElementById('cancel-overlay');
+    ov.classList.remove('show');
+    ov.innerHTML = '';
 }
 
 // ================================================================
 //  RENDER ENGINE
 // ================================================================
 function render() {
+    clearCancelOverlay();
     switch(S.phase) {
         case 'welcome':       renderWelcome(); break;
         case 'askCount':      renderAskCount(); break;
@@ -320,7 +476,7 @@ function renderAskCount() {
     btn.onclick = () => {
         const n = parseInt(inp.value);
         if(!n||n<1) return;
-        S.productCount=n; S.currentIndex=0; S.products=[]; S.sales={};
+        S.productCount=n; S.currentIndex=0; S.products=[]; S.sales={}; S.restocks=[];
         S.phase='enterProducts'; saveState(); render();
     };
     inp.onkeydown = e => { if(e.key==='Enter') btn.click(); };
@@ -370,11 +526,15 @@ function renderEnterProducts() {
         const name  = document.getElementById('pn').value.trim();
         const qty   = parseInt(document.getElementById('pq').value);
         const price = parseFloat(document.getElementById('pp').value);
-        if(!name){ showToast("Veuillez entrer le nom de l'article",true); return; }
-        if(!qty||qty<1){ showToast("Veuillez entrer une quantité valide",true); return; }
-        if(isNaN(price)||price<0){ showToast("Veuillez entrer un prix valide",true); return; }
+        if(!name){ showToast("Veuillez entrer le nom de l'article",'loss'); return; }
+        if(!qty||qty<1){ showToast("Veuillez entrer une quantité valide",'loss'); return; }
+        if(isNaN(price)||price<0){ showToast("Veuillez entrer un prix valide",'loss'); return; }
 
-        S.products[i] = { name, quantity:qty, purchasePrice:price, unitPrice:price/qty };
+        const unitPrice = price / qty;
+        S.products[i] = {
+            name, quantity: qty, purchasePrice: price, unitPrice,
+            batches: [{ quantity: qty, unitPrice, purchasePrice: price }]
+        };
         if(!S.sales[i]) S.sales[i] = [];
 
         if(last){
@@ -385,7 +545,6 @@ function renderEnterProducts() {
         }
     };
 
-    // Enter-key navigation
     ['pn','pq','pp'].forEach((id,idx,arr)=>{
         document.getElementById(id).onkeydown = e => {
             if(e.key==='Enter'){
@@ -396,10 +555,18 @@ function renderEnterProducts() {
     });
 }
 
-// ---- Main Menu ----
+// ================================================================
+//  MAIN MENU
+// ================================================================
 let _sellingIdx = null, _confirming = false;
+let _restockMode = false, _restockingIdx = null, _addingNewInRestock = false;
 
 function renderMainMenu() {
+    if (_restockMode) {
+        renderRestockView();
+        return;
+    }
+
     let items = '';
     S.products.forEach((p,i)=>{
         const st = stats(i), dep = st.remaining<=0;
@@ -419,7 +586,6 @@ function renderMainMenu() {
                     <span class="stock">${dep?'Épuisé':st.remaining+' pcs'}</span>
                   </button>`;
 
-        // Selling form — right after the selected product button
         if(isSelling){
             items += `
             <div class="card plannie-effect" style="margin-bottom:14px;border-left:4px solid var(--g500)">
@@ -435,7 +601,6 @@ function renderMainMenu() {
         }
     });
 
-    // Confirmation block
     let confirmHTML = '';
     if(_confirming){
         confirmHTML = `
@@ -453,6 +618,9 @@ function renderMainMenu() {
     app.innerHTML = `
         <div class="section">
             <div class="logo">${LOGO_SVG}<div class="logo-text">Plannie</div></div>
+            <div class="menu-header">
+                <button class="btn-restock" id="bRestock">📦&nbsp; Approvisionner</button>
+            </div>
             <div class="w-full">${items}</div>
             <button class="btn-end" id="be">🌙&nbsp; Fin de la journée</button>
             ${confirmHTML}
@@ -460,12 +628,24 @@ function renderMainMenu() {
 
     // ---- Event wiring ----
 
+    // Restock button
+    document.getElementById('bRestock').onclick = () => {
+        _sellingIdx = null;
+        _confirming = false;
+        _restockMode = true;
+        _restockingIdx = null;
+        _addingNewInRestock = false;
+        showToast("ℹ️ L'argent dépensé pour l'approvisionnement n'est pas retiré de la caisse de la journée.", 'info');
+        renderMainMenu();
+    };
+
     // Product clicks
     document.querySelectorAll('.btn-product:not(.depleted):not(.dimmed)').forEach(b=>{
         b.onclick = () => {
             const idx = parseInt(b.dataset.idx);
             _confirming = false;
-            _sellingIdx = (_sellingIdx===idx) ? null : idx;   // toggle
+            clearCancelOverlay();
+            _sellingIdx = (_sellingIdx===idx) ? null : idx;
             renderMainMenu();
         };
     });
@@ -482,25 +662,36 @@ function renderMainMenu() {
             const price = parseFloat(document.getElementById('sp').value);
             const st    = stats(idx);
 
-            if(!qty||qty<1){ showToast('Quantité invalide',true); return; }
-            if(qty>st.remaining){ showToast(`Stock insuffisant (${st.remaining} pièce(s) restante(s))`,true); return; }
-            if(isNaN(price)||price<0){ showToast('Veuillez entrer un prix de vente',true); return; }
+            if(!qty||qty<1){ showToast('Quantité invalide','loss'); return; }
+            if(qty>st.remaining){ showToast(`Stock insuffisant (${st.remaining} pièce(s) restante(s))`,'loss'); return; }
+            if(isNaN(price)||price<0){ showToast('Veuillez entrer un prix de vente','loss'); return; }
 
-            S.sales[idx].push({ quantity:qty, price });
+            // FIFO consumption
+            const batchConsumptions = consumeFIFO(idx, qty);
+            const sale = { quantity: qty, price, batchConsumptions };
+            S.sales[idx].push(sale);
             saveState();
 
-            const cost = S.products[idx].unitPrice * qty;
+            // Calculate gain using FIFO costs
+            const cost = batchConsumptions.reduce((s, bc) => s + bc.qty * bc.unitPrice, 0);
             const gain = price - cost;
-            const pct  = cost>0?(gain/cost)*100:0;
+            const pct  = cost > 0 ? (gain/cost)*100 : 0;
 
-            if(gain>=0) showToast(`Vente enregistrée ! Gain : +${formatFC(gain)} (${formatPct(pct)})`);
-            else showToast(`Vente enregistrée. Perte : ${formatFC(gain)} (${formatPct(pct)})`, true);
+            if(gain >= 0){
+                showToast(`Vente enregistrée ! Gain : +${formatFC(gain)} (${formatPct(pct)})`);
+            } else {
+                // Show cancel overlay for loss sale
+                const saleIndex = S.sales[idx].length - 1;
+                showCancelOverlay(
+                    `⚠️ Vente à perte : ${formatFC(gain)} (${formatPct(pct)})`,
+                    idx, saleIndex
+                );
+            }
 
             _sellingIdx = null;
             renderMainMenu();
         };
 
-        // Enter keys in selling form
         const sqEl = document.getElementById('sq');
         if(sqEl) sqEl.onkeydown = e => { if(e.key==='Enter' && spEl) spEl.focus(); };
         if(spEl) spEl.onkeydown = e => { if(e.key==='Enter' && svBtn) svBtn.click(); };
@@ -509,6 +700,7 @@ function renderMainMenu() {
     // End of day
     document.getElementById('be').onclick = () => {
         _sellingIdx = null;
+        clearCancelOverlay();
         _confirming = true;
         renderMainMenu();
     };
@@ -526,7 +718,180 @@ function renderMainMenu() {
     }
 }
 
-// ---- Report ----
+// ================================================================
+//  RESTOCK VIEW
+// ================================================================
+function renderRestockView() {
+    let items = '';
+
+    if (_addingNewInRestock) {
+        // Show form to add a brand new product
+        items = `
+        <div class="card plannie-effect">
+            <div style="text-align:center;font-size:14px;color:var(--g800);font-weight:600;margin-bottom:16px">
+                Nouvel article
+            </div>
+            <div class="input-group">
+                <label class="input-label">Nom de l'article</label>
+                <input type="text" class="input-field" id="rn" placeholder="Ex : Bijoux">
+            </div>
+            <div class="input-group">
+                <label class="input-label">Combien de pièces ?</label>
+                <input type="number" class="input-field" id="rq" placeholder="Ex : 10" min="1">
+            </div>
+            <div class="input-group">
+                <label class="input-label">Combien ça vous a coûté ?</label>
+                <div class="input-inline">
+                    <input type="number" class="input-field" id="rp" placeholder="Ex : 30000" min="0">
+                    <span class="input-suffix">FC</span>
+                </div>
+            </div>
+            <div class="btn-right">
+                <button class="btn btn-primary" id="rnv">✅ Ajouter</button>
+            </div>
+        </div>`;
+    } else {
+        // Show product list for restocking
+        S.products.forEach((p, i) => {
+            const isRestocking = _restockingIdx === i;
+            const isDimmed = _restockingIdx !== null && !isRestocking;
+            const cls = ['btn-product', isRestocking ? 'active' : '', isDimmed ? 'dimmed' : ''].filter(Boolean).join(' ');
+            const st = stats(i);
+
+            items += `<button class="${cls}" data-ridx="${i}"
+                        style="animation:slideUp .4s ease ${i * .07}s backwards"
+                        ${isDimmed ? 'disabled' : ''}>
+                        <span>${esc(p.name)}</span>
+                        <span class="stock">${st.remaining} pcs</span>
+                      </button>`;
+
+            if (isRestocking) {
+                items += `
+                <div class="card plannie-effect" style="margin-bottom:14px;border-left:4px solid var(--g600)">
+                    <div class="sell-line">
+                        <span>J'ajoute</span>
+                        <input type="number" class="input-field" id="raq" value="1" min="1">
+                        <span>pièce(s) de <strong>${esc(p.name)}</strong> que je viens d'acheter à</span>
+                        <input type="number" class="input-field price-input" id="rap" placeholder="Prix">
+                        <span class="input-suffix">FC</span>
+                        <button class="btn-check" id="rav">✓</button>
+                    </div>
+                </div>`;
+            }
+        });
+    }
+
+    app.innerHTML = `
+        <div class="section">
+            <div class="logo">${LOGO_SVG}<div class="logo-text">Plannie</div></div>
+            <div class="menu-header">
+                <button class="btn-restock" id="bRetour">↩&nbsp; Retourner au menu</button>
+            </div>
+            <div class="w-full">${items}</div>
+            ${_addingNewInRestock ? '' : '<button class="btn-end" id="bAddNew">➕&nbsp; Ajouter un article</button>'}
+        </div>`;
+
+    // ---- Wiring ----
+
+    // Return to menu
+    document.getElementById('bRetour').onclick = () => {
+        _restockMode = false;
+        _restockingIdx = null;
+        _addingNewInRestock = false;
+        renderMainMenu();
+    };
+
+    if (_addingNewInRestock) {
+        // New product form
+        document.getElementById('rn').focus();
+        document.getElementById('rnv').onclick = () => {
+            const name = document.getElementById('rn').value.trim();
+            const qty = parseInt(document.getElementById('rq').value);
+            const price = parseFloat(document.getElementById('rp').value);
+            if (!name) { showToast("Nom de l'article requis", 'loss'); return; }
+            if (!qty || qty < 1) { showToast("Quantité invalide", 'loss'); return; }
+            if (isNaN(price) || price < 0) { showToast("Prix invalide", 'loss'); return; }
+
+            const unitPrice = price / qty;
+            const newIdx = S.products.length;
+            S.products.push({
+                name, quantity: qty, purchasePrice: price, unitPrice,
+                batches: [{ quantity: qty, unitPrice, purchasePrice: price }]
+            });
+            S.sales[newIdx] = [];
+            S.productCount = S.products.length;
+            S.restocks.push({ productIdx: newIdx, quantity: qty, purchasePrice: price, unitPrice, isNewProduct: true });
+            saveState();
+
+            showToast(`Article "${name}" ajouté avec succès !`);
+            _addingNewInRestock = false;
+            renderRestockView();
+        };
+
+        ['rn','rq','rp'].forEach((id,idx,arr)=>{
+            const el = document.getElementById(id);
+            if(el) el.onkeydown = e => {
+                if(e.key==='Enter'){
+                    if(idx<arr.length-1) document.getElementById(arr[idx+1]).focus();
+                    else document.getElementById('rnv').click();
+                }
+            };
+        });
+    } else {
+        // Product clicks for restocking
+        document.querySelectorAll('[data-ridx]').forEach(b => {
+            b.onclick = () => {
+                _restockingIdx = (_restockingIdx === parseInt(b.dataset.ridx)) ? null : parseInt(b.dataset.ridx);
+                renderRestockView();
+            };
+        });
+
+        // Restock validation
+        if (_restockingIdx !== null) {
+            const rapEl = document.getElementById('rap');
+            if (rapEl) rapEl.focus();
+
+            const ravBtn = document.getElementById('rav');
+            if (ravBtn) ravBtn.onclick = () => {
+                const idx = _restockingIdx;
+                const qty = parseInt(document.getElementById('raq').value);
+                const price = parseFloat(document.getElementById('rap').value);
+                if (!qty || qty < 1) { showToast("Quantité invalide", 'loss'); return; }
+                if (isNaN(price) || price < 0) { showToast("Prix invalide", 'loss'); return; }
+
+                const p = S.products[idx];
+                const unitPrice = price / qty;
+                p.batches.push({ quantity: qty, unitPrice, purchasePrice: price });
+                p.quantity += qty;
+                p.purchasePrice += price;
+                p.unitPrice = p.purchasePrice / p.quantity;
+
+                S.restocks.push({ productIdx: idx, quantity: qty, purchasePrice: price, unitPrice, isNewProduct: false });
+                saveState();
+
+                showToast(`Stock de "${p.name}" mis à jour ! Les anciennes pièces seront écoulées en priorité (FIFO).`);
+                _restockingIdx = null;
+                renderRestockView();
+            };
+
+            const raqEl = document.getElementById('raq');
+            if (raqEl) raqEl.onkeydown = e => { if (e.key === 'Enter' && rapEl) rapEl.focus(); };
+            if (rapEl) rapEl.onkeydown = e => { if (e.key === 'Enter' && ravBtn) ravBtn.click(); };
+        }
+
+        // Add new product button
+        const addNewBtn = document.getElementById('bAddNew');
+        if (addNewBtn) addNewBtn.onclick = () => {
+            _restockingIdx = null;
+            _addingNewInRestock = true;
+            renderRestockView();
+        };
+    }
+}
+
+// ================================================================
+//  REPORT
+// ================================================================
 function renderReport() {
     const all = S.products.map((p,i) => ({
         ...stats(i), name:p.name, idx:i,
@@ -535,9 +900,7 @@ function renderReport() {
 
     const totalCaisse = all.reduce((s,a) => s+a.rev, 0);
 
-    // Profitable (sold & gain > 0)
     const profitable = all.filter(a => a.qtySold>0 && a.gain>0);
-    // All sold
     const sold = all.filter(a => a.qtySold>0);
 
     const vert   = profitable.length ? profitable.reduce((a,b) => a.gain>b.gain?a:b) : null;
@@ -576,22 +939,29 @@ function renderReport() {
             </div>
         </div>`;
 
-    // Save a snapshot of products & sales for the PDF (before clearing)
-    const snapshot = { products: JSON.parse(JSON.stringify(S.products)), sales: JSON.parse(JSON.stringify(S.sales)) };
+    // Snapshot before clearing
+    const snapshot = {
+        products: JSON.parse(JSON.stringify(S.products)),
+        sales: JSON.parse(JSON.stringify(S.sales)),
+        restocks: JSON.parse(JSON.stringify(S.restocks || []))
+    };
 
-    // Clear persisted data FIRST (guaranteed cleanup)
+    // Clear persisted data
     clearState();
 
-    // Generate & download PDF (wrapped in try-catch so it never blocks)
+    // Generate PDF
     try {
         generatePDF(snapshot, all, totalCaisse, vert, dore, orange, rouge);
+        showToast('📄 Rapport PDF téléchargé avec succès ! Consultez-le dès maintenant.');
     } catch(e) {
         console.error('Erreur PDF :', e);
-        showToast('Le PDF n\'a pas pu être généré. Vérifiez votre connexion.', true);
+        showToast("Le PDF n'a pas pu être généré. Vérifiez votre connexion.", 'loss');
     }
 
     document.getElementById('bnd').onclick = () => {
-        S = freshState(); _sellingIdx=null; _confirming=false; render();
+        S = freshState(); _sellingIdx=null; _confirming=false;
+        _restockMode=false; _restockingIdx=null; _addingNewInRestock=false;
+        render();
     };
 }
 
@@ -607,7 +977,6 @@ function generatePDF(snapshot, all, totalCaisse, vert, dore, orange, rouge) {
     let y = 20;
 
     function chk(n=30){ if(y+n>272){ doc.addPage(); y=20; } }
-    // PDF-safe number formatter (dot as thousands separator, à la française)
     function fmtN(n){ return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
 
     // ---- Header ----
@@ -625,12 +994,11 @@ function generatePDF(snapshot, all, totalCaisse, vert, dore, orange, rouge) {
 
     doc.autoTable({
         startY: y,
-        head: [['Article','Quantit\u00e9','Prix d\'achat (FC)','Prix unitaire (FC)']],
-        body: snapshot.products.map(p => [
-            p.name, p.quantity,
-            fmtN(p.purchasePrice),
-            p.unitPrice.toFixed(2)
-        ]),
+        head: [['Article','Qt\u00e9 initiale','Prix d\'achat (FC)','Prix unitaire (FC)']],
+        body: snapshot.products.map(p => {
+            const b0 = p.batches[0];
+            return [p.name, b0.quantity, fmtN(b0.purchasePrice), fmtN(b0.unitPrice)];
+        }),
         theme:'grid',
         headStyles:{fillColor:[46,125,50],textColor:255},
         styles:{font:'helvetica',fontSize:10},
@@ -638,14 +1006,39 @@ function generatePDF(snapshot, all, totalCaisse, vert, dore, orange, rouge) {
     });
     y = doc.lastAutoTable.finalY + 15;
 
-    // ---- Section 2: Ventes du jour ----
+    // ---- Section 2: Approvisionnements ----
+    const restocks = snapshot.restocks || [];
+    if (restocks.length > 0) {
+        chk(30);
+        doc.setFontSize(14); doc.setTextColor(46,125,50);
+        doc.text('Approvisionnements de la journ\u00e9e', m, y); y+=8;
+
+        doc.autoTable({
+            startY: y,
+            head: [['Type','Article','Qt\u00e9 ajout\u00e9e','Prix d\'achat (FC)','Prix unitaire (FC)']],
+            body: restocks.map(r => {
+                const pName = r.productIdx < snapshot.products.length ? snapshot.products[r.productIdx].name : '?';
+                return [
+                    r.isNewProduct ? 'Nouvel article' : 'Ajout stock',
+                    pName, r.quantity, fmtN(r.purchasePrice), fmtN(r.unitPrice)
+                ];
+            }),
+            theme:'grid',
+            headStyles:{fillColor:[76,175,80],textColor:255},
+            styles:{font:'helvetica',fontSize:9},
+            margin:{left:m,right:m}
+        });
+        y = doc.lastAutoTable.finalY + 15;
+    }
+
+    // ---- Section 3: Ventes du jour ----
     chk(30);
     doc.setFontSize(14); doc.setTextColor(46,125,50);
     doc.text('Ventes du jour', m, y); y+=10;
 
     snapshot.products.forEach((p,i) => {
         const sales = snapshot.sales[i] || [];
-        chk(20 + sales.length*8);
+        chk(20 + sales.length*12);
         doc.setFontSize(11); doc.setTextColor(30,30,30);
         doc.text(p.name, m, y); y+=6;
 
@@ -653,16 +1046,35 @@ function generatePDF(snapshot, all, totalCaisse, vert, dore, orange, rouge) {
             doc.setFontSize(9); doc.setTextColor(150,150,150);
             doc.text('Aucune vente', m+5, y); y+=10;
         } else {
+            const bodyRows = [];
+            sales.forEach((s, si) => {
+                let cost = 0;
+                let detail = '';
+                if (s.batchConsumptions) {
+                    s.batchConsumptions.forEach(bc => {
+                        cost += bc.qty * bc.unitPrice;
+                    });
+                    if (s.batchConsumptions.length > 1) {
+                        detail = s.batchConsumptions.map(bc =>
+                            bc.qty + 'x' + fmtN(bc.unitPrice)
+                        ).join(' + ');
+                    }
+                } else {
+                    cost = p.batches[0].unitPrice * s.quantity;
+                }
+                const g = s.price - cost;
+                const row = [
+                    si+1, s.quantity, fmtN(s.price),
+                    fmtN(cost),
+                    (g>=0?'+':'')+fmtN(g)
+                ];
+                bodyRows.push(row);
+            });
+
             doc.autoTable({
                 startY: y,
-                head: [['Vente #','Quantit\u00e9','Prix de vente (FC)','Gain/Perte (FC)']],
-                body: sales.map((s,si)=>{
-                    const c = p.unitPrice*s.quantity;
-                    const g = s.price - c;
-                    return [ si+1, s.quantity,
-                        fmtN(s.price),
-                        (g>=0?'+':'')+fmtN(g) ];
-                }),
+                head: [['#','Qt\u00e9','Vente (FC)','Co\u00fbt FIFO (FC)','Gain/Perte (FC)']],
+                body: bodyRows,
                 theme:'striped',
                 headStyles:{fillColor:[76,175,80],textColor:255},
                 styles:{font:'helvetica',fontSize:9},
@@ -672,7 +1084,7 @@ function generatePDF(snapshot, all, totalCaisse, vert, dore, orange, rouge) {
         }
     });
 
-    // ---- Section 3: Rapport Plannie ----
+    // ---- Section 4: Rapport Plannie ----
     chk(70);
     doc.setFontSize(14); doc.setTextColor(46,125,50);
     doc.text('Rapport Plannie', m, y); y+=10;
