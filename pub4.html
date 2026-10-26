@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plannie – La pub ultime</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+    background:#000;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;
+    overflow:hidden;gap:16px;
+}
+canvas{border-radius:16px;box-shadow:0 0 60px rgba(76,175,80,.25);max-width:95vw;max-height:80vh}
+@media(max-width:400px){canvas{border-radius:0}}
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.btn{padding:14px 28px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;display:flex;align-items:center;gap:8px}
+.btn-play{background:#2E7D32;color:#fff}.btn-play:hover{background:#388E3C}
+.btn-dl{background:#fff;color:#2E7D32}.btn-dl:hover{background:#E8F5E9}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.status{color:rgba(255,255,255,.5);font-size:13px;min-height:18px}
+</style>
+</head>
+<body>
+<canvas id="c" width="360" height="640"></canvas>
+<div class="controls">
+    <button class="btn btn-play" id="btnPlay" onclick="runAd(false)">▶ Lancer la pub</button>
+    <button class="btn btn-dl" id="btnDl" onclick="runAd(true)">📥 Télécharger la vidéo</button>
+</div>
+<div class="status" id="status"></div>
+
+<script>
+const W=360,H=640,FPS=30,DURATION=52000;
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const G900='#1B5E20',G800='#2E7D32',G700='#388E3C',G600='#43A047',G500='#4CAF50',
+      G400='#66BB6A',G300='#81C784',G200='#A5D6A7',G100='#C8E6C9',G50='#E8F5E9';
+const GOLD='#F9A825',ORANGE='#EF6C00',PHONE='+243 979 508 196';
+
+// ============ IMAGE LOADING ============
+const imgFiles={
+    cover:'img/plannie_cover_1792799845450.jpg',
+    problem:'img/plannie_market_problem_1792799857414.jpg',
+    happy:'img/plannie_happy_result_1792799871450.jpg',
+    logo:'img/plannie_logo_1792797585289.jpg',
+};
+const imgs={};
+let imgsLoaded=0,imgsTotal=Object.keys(imgFiles).length;
+Object.entries(imgFiles).forEach(([k,src])=>{
+    const im=new Image();im.onload=()=>{imgsLoaded++};im.onerror=()=>{imgsLoaded++};
+    im.src=src;imgs[k]=im;
+});
+
+// ============ HELPERS ============
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function easeOut(t){return 1-Math.pow(1-t,3)}
+function easeInOut(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2}
+function fadeUp(t,delay,dur=500){const p=clamp((t-delay)/dur,0,1);return{a:easeOut(p),y:25*(1-easeOut(p))}}
+function fadeIn(t,delay,dur=500){return{a:easeOut(clamp((t-delay)/dur,0,1))}}
+function slideL(t,delay,dur=500){const p=clamp((t-delay)/dur,0,1);return{a:easeOut(p),x:-40*(1-easeOut(p))}}
+function popScale(t,delay,dur=400){const p=clamp((t-delay)/dur,0,1);const s=p<.7?p/.7*1.15:1.15-(p-.7)/.3*.15;return{a:Math.min(p*2,1),s}}
+
+function roundRect(x,y,w,h,r,fill,stroke){
+    ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+    if(fill){ctx.fillStyle=fill;ctx.fill()}
+    if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke();ctx.lineWidth=1}
+}
+
+function drawLogo(cx,cy,size,alpha=1){
+    ctx.save();ctx.globalAlpha=alpha;ctx.translate(cx,cy);
+    const s=size/80;ctx.scale(s,s);
+    ctx.fillStyle='rgba(255,255,255,0.9)';
+    ctx.beginPath();ctx.moveTo(0,18);ctx.bezierCurveTo(0,-2,14,-22,30,-32);
+    ctx.bezierCurveTo(18,-20,10,-4,8,16);ctx.closePath();ctx.fill();
+    ctx.fillStyle='rgba(200,230,201,0.8)';
+    ctx.beginPath();ctx.moveTo(0,18);ctx.bezierCurveTo(0,-2,-14,-22,-30,-32);
+    ctx.bezierCurveTo(-18,-20,-10,-4,-8,16);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#fff';roundRect(-2,16,4,16,2,'#fff');
+    ctx.restore();
+}
+
+function drawProgress(t){
+    ctx.fillStyle='rgba(255,255,255,0.08)';ctx.fillRect(0,H-4,W,4);
+    const grd=ctx.createLinearGradient(0,0,W*(t/DURATION),0);
+    grd.addColorStop(0,G400);grd.addColorStop(1,'#fff');
+    ctx.fillStyle=grd;ctx.fillRect(0,H-4,W*(t/DURATION),4);
+}
+
+function drawBadge(x,y,text,bg,fg='#fff'){
+    ctx.font='700 11px "Segoe UI",sans-serif';
+    const tw=ctx.measureText(text).width;
+    roundRect(x-tw/2-12,y-11,tw+24,24,12,bg);
+    ctx.fillStyle=fg;ctx.textAlign='center';
+    ctx.fillText(text,x,y+4);
+}
+
+function drawParticles(t,count=15,color=G400){
+    for(let i=0;i<count;i++){
+        const px=(Math.sin(t/800+i*2.1)*0.4+0.5)*W;
+        const py=(Math.cos(t/600+i*1.7)*0.4+0.5)*H;
+        const sz=2+Math.sin(t/400+i)*2;
+        ctx.globalAlpha=0.15+Math.sin(t/500+i)*0.1;
+        ctx.beginPath();ctx.arc(px,py,sz,0,Math.PI*2);
+        ctx.fillStyle=color;ctx.fill();
+    }
+    ctx.globalAlpha=1;
+}
+
+// Draw image covering a rect with Ken Burns effect
+function drawImgCover(img,x,y,w,h,alpha,zoom=1,panX=0,panY=0){
+    if(!img||!img.complete||!img.naturalWidth)return;
+    ctx.save();ctx.globalAlpha=alpha;
+    ctx.beginPath();roundRect(x,y,w,h,0);ctx.clip();
+    const iAR=img.naturalWidth/img.naturalHeight;
+    const cAR=w/h;
+    let sw,sh;
+    if(iAR>cAR){sh=h*zoom;sw=sh*iAR}else{sw=w*zoom;sh=sw/iAR}
+    const dx=x+(w-sw)/2+panX;
+    const dy=y+(h-sh)/2+panY;
+    ctx.drawImage(img,dx,dy,sw,sh);
+    ctx.restore();
+}
+
+// Vignette overlay
+function drawVignette(intensity=0.6){
+    const grd=ctx.createRadialGradient(W/2,H/2,W*0.3,W/2,H/2,W*0.9);
+    grd.addColorStop(0,'rgba(0,0,0,0)');
+    grd.addColorStop(1,`rgba(0,0,0,${intensity})`);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+}
+
+// ============ SCENES ============
+
+// S1: Cinematic open — Cover image (0-5000)
+function drawS1(t){
+    // Background: cover image with slow zoom
+    const zoom=1+t/50000;
+    const panY=t*0.005;
+    drawImgCover(imgs.cover,0,0,W,H,1,zoom,0,-panY);
+
+    // Dark gradient overlay
+    const grd=ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,'rgba(0,0,0,0.3)');
+    grd.addColorStop(0.5,'rgba(0,0,0,0.15)');
+    grd.addColorStop(1,'rgba(0,0,0,0.75)');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawVignette(0.4);
+
+    // Sparkle particles
+    for(let i=0;i<8;i++){
+        const px=(Math.sin(t/1000+i*3)*0.3+0.5)*W;
+        const py=H*0.2+(Math.cos(t/800+i*2)*0.15)*H;
+        const blink=0.3+0.7*Math.abs(Math.sin(t/300+i*1.5));
+        ctx.globalAlpha=0.2*blink;ctx.fillStyle='#fff';
+        ctx.beginPath();ctx.arc(px,py,1.5,0,Math.PI*2);ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Logo image (rounded)
+    const fl=popScale(t,300,800);
+    if(fl.a>0&&imgs.logo.complete){
+        ctx.save();ctx.globalAlpha=fl.a;
+        const sz=90*fl.s;
+        const lx=W/2-sz/2,ly=H*0.35-sz/2;
+        ctx.beginPath();ctx.arc(W/2,H*0.35,sz/2+4,0,Math.PI*2);
+        ctx.fillStyle='rgba(255,255,255,0.2)';ctx.fill();
+        ctx.beginPath();ctx.arc(W/2,H*0.35,sz/2,0,Math.PI*2);ctx.clip();
+        ctx.drawImage(imgs.logo,lx,ly,sz,sz);
+        ctx.restore();
+    }
+
+    // Title
+    const fn=fadeUp(t,800,700);
+    ctx.globalAlpha=fn.a;ctx.fillStyle='#fff';
+    ctx.font='800 46px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=20;
+    ctx.fillText('Plannie',W/2,H*0.55+fn.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+
+    // Tagline
+    const fs=fadeUp(t,1400,500);
+    ctx.globalAlpha=fs.a;ctx.fillStyle=G200;
+    ctx.font='400 17px "Segoe UI",sans-serif';
+    ctx.fillText('Commerce intelligent.',W/2,H*0.62+fs.y);
+    ctx.fillText('Résultats immédiats.',W/2,H*0.67+fs.y);
+
+    // Badge
+    const fb=fadeUp(t,2200,400);
+    if(fb.a>0){ctx.globalAlpha=fb.a;drawBadge(W/2,H*0.74+fb.y,'🌿 GRATUIT • HORS LIGNE • INTELLIGENT',G800)}
+
+    // Bottom hint
+    const fa=fadeUp(t,3500,400);
+    if(fa.a>0){
+        const blink2=0.4+0.6*Math.abs(Math.sin(t/350));
+        ctx.globalAlpha=fa.a*blink2;ctx.fillStyle='#fff';
+        ctx.font='18px sans-serif';ctx.textAlign='center';
+        ctx.fillText('↓',W/2,H-30);
+    }
+    ctx.globalAlpha=1;
+}
+
+// S2: The problem — market chaos photo (5000-10000)
+function drawS2(t){
+    // Problem image with slow pan
+    const zoom=1.05+t/80000;
+    const panX=t*0.003;
+    drawImgCover(imgs.problem,0,0,W,H,1,zoom,panX,0);
+
+    // Heavy dark overlay
+    const grd=ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,'rgba(0,0,0,0.55)');
+    grd.addColorStop(0.4,'rgba(0,0,0,0.4)');
+    grd.addColorStop(1,'rgba(0,0,0,0.85)');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+
+    // Title
+    const ft=fadeUp(t,200,500);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 22px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.shadowColor='rgba(0,0,0,0.6)';ctx.shadowBlur=15;
+    ctx.fillText('Tu vends chaque jour...',W/2,70+ft.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+
+    // Pain points
+    const pains=[
+        {icon:'😰',text:'Mais tu ne sais pas si tu gagnes',d:700},
+        {icon:'📝',text:'Tu notes dans un cahier qui se perd',d:1200},
+        {icon:'🤯',text:'Les calculs te donnent mal à la tête',d:1700},
+        {icon:'❓',text:'Quel article te rapporte le plus ?',d:2200},
+        {icon:'💸',text:'Tu vends parfois à perte sans le savoir',d:2700},
+    ];
+    pains.forEach((p,i)=>{
+        const sl=slideL(t,p.d,500);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const py=140+i*80;
+        roundRect(25+sl.x,py-15,W-50,58,12,'rgba(198,40,40,0.2)','rgba(198,40,40,0.3)');
+        ctx.font='26px sans-serif';ctx.textAlign='center';
+        ctx.fillText(p.icon,55+sl.x,py+18);
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='600 14px "Segoe UI",sans-serif';
+        ctx.fillText(p.text,80+sl.x,py+16);
+    });
+    ctx.globalAlpha=1;
+
+    // Transition
+    const fe=fadeUp(t,3800,500);
+    ctx.globalAlpha=fe.a;ctx.fillStyle=GOLD;
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=10;
+    ctx.fillText('Et si tout ça changeait ? ✨',W/2,H-50+fe.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+    ctx.globalAlpha=1;
+}
+
+// S3: The solution — Plannie arrives (10000-15500)
+function drawS3(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,'#0D3B14');grd.addColorStop(1,G900);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawParticles(t,20);
+
+    // Logo
+    const fl=popScale(t,200,700);
+    if(fl.a>0)drawLogo(W/2,100,75*fl.s,fl.a);
+
+    // Name
+    const fn=fadeUp(t,500,600);
+    ctx.globalAlpha=fn.a;ctx.fillStyle='#fff';
+    ctx.font='800 44px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Plannie',W/2,185+fn.y);
+
+    const fs=fadeUp(t,900,400);
+    ctx.globalAlpha=fs.a;ctx.fillStyle=G300;
+    ctx.font='400 16px "Segoe UI",sans-serif';
+    ctx.fillText('Ton assistant commercial intelligent',W/2,215+fs.y);
+    ctx.globalAlpha=1;
+
+    // Features flowing in
+    const features=[
+        {icon:'📝',text:'Enregistre tes ventes en 5 secondes',d:1600},
+        {icon:'📊',text:'Rapport complet en 1 clic',d:2000},
+        {icon:'📄',text:'PDF automatique et professionnel',d:2400},
+        {icon:'📦',text:'Approvisionne à tout moment',d:2800},
+        {icon:'🔄',text:'Méthode FIFO — bénéfice exact',d:3200},
+        {icon:'❌',text:'Annule une vente à perte en 1 tap',d:3600},
+        {icon:'📱',text:'Version Android disponible !',d:4000},
+    ];
+    features.forEach((f,i)=>{
+        const sl=slideL(t,f.d,450);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const fy=260+i*48;
+        ctx.font='18px sans-serif';ctx.textAlign='center';
+        ctx.fillText(f.icon,48+sl.x,fy+5);
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='500 14px "Segoe UI",sans-serif';
+        ctx.fillText(f.text,72+sl.x,fy+4);
+    });
+    ctx.globalAlpha=1;
+}
+
+// S4: Demo — How it works (15500-21500)
+function drawS4(t){
+    ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Comment ça marche ? 🤔',W/2,50+ft.y);
+    ctx.globalAlpha=1;
+
+    // Step cards
+    const steps=[
+        {num:'1',title:'Démarre ta journée',desc:'Dis à Plannie combien d\'articles tu vends',icon:'🌿',bg:'rgba(46,125,50,0.15)',d:500},
+        {num:'2',title:'Entre tes articles',desc:'Nom, quantité et prix d\'achat de chacun',icon:'📋',bg:'rgba(76,175,80,0.12)',d:1200},
+        {num:'3',title:'Vends tranquillement',desc:'Clique, entre le prix, Plannie calcule tout',icon:'💰',bg:'rgba(102,187,106,0.12)',d:1900},
+        {num:'4',title:'Consulte ton rapport',desc:'Caisse totale + articles gagnants/perdants',icon:'📊',bg:'rgba(249,168,37,0.12)',d:2600},
+        {num:'5',title:'Télécharge ton PDF',desc:'Rapport professionnel sauvegardé sur ton tel',icon:'📄',bg:'rgba(129,199,132,0.12)',d:3300},
+    ];
+    steps.forEach((s,i)=>{
+        const sl=fadeUp(t,s.d,600);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const sy=90+i*105+sl.y;
+        roundRect(20,sy,W-40,88,14,s.bg,'rgba(255,255,255,0.1)');
+        // Number circle
+        ctx.beginPath();ctx.arc(50,sy+44,16,0,Math.PI*2);
+        ctx.fillStyle=G800;ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='700 16px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText(s.num,50,sy+50);
+        // Icon
+        ctx.font='28px sans-serif';ctx.fillText(s.icon,W-50,sy+48);
+        // Text
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='700 15px "Segoe UI",sans-serif';
+        ctx.fillText(s.title,78,sy+32);
+        ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+        ctx.fillText(s.desc,78,sy+52);
+    });
+    ctx.globalAlpha=1;
+
+    const fe=fadeUp(t,4800,400);
+    ctx.globalAlpha=fe.a;ctx.fillStyle=G400;
+    ctx.font='600 15px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Aussi simple que ça ! ⚡',W/2,H-25+fe.y);
+    ctx.globalAlpha=1;
+}
+
+// S5: The report — what Plannie tells you (21500-27000)
+function drawS5(t){
+    const grd=ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,G900);grd.addColorStop(1,'#0D3B14');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Ton rapport Plannie 📊',W/2,45+ft.y);
+    ctx.globalAlpha=1;
+
+    // Caisse
+    const fc=fadeUp(t,500,600);
+    if(fc.a>0){
+        ctx.globalAlpha=fc.a;ctx.save();ctx.translate(0,fc.y);
+        roundRect(20,75,W-40,70,14,G800);
+        ctx.fillStyle='rgba(255,255,255,0.7)';ctx.font='600 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('💰 CAISSE TOTALE DU JOUR',W/2,98);
+        ctx.fillStyle='#fff';ctx.font='800 28px "Segoe UI",sans-serif';
+        ctx.fillText('385.000 FC',W/2,130);
+        ctx.restore();
+    }
+
+    // Article cards
+    const articles=[
+        {icon:'🟢',title:'Article Vert',sub:'Meilleur revenu (montant)',val:'Chaussures Nike — +45.000 FC',bg:'rgba(200,230,201,0.15)',border:G500,d:1200},
+        {icon:'🏆',title:'Article Doré',sub:'Meilleur revenu (pourcentage)',val:'Bijoux — +72.3%',bg:'rgba(255,248,225,0.1)',border:GOLD,d:1800},
+        {icon:'🟠',title:'Article Orange',sub:'Plus faible revenu',val:'Sacs à main — +2.000 FC',bg:'rgba(255,243,224,0.1)',border:ORANGE,d:2400},
+        {icon:'🔴',title:'Article Rouge',sub:'Plus faible pourcentage',val:'Parfums — +3.1%',bg:'rgba(255,235,238,0.1)',border:'#C62828',d:3000},
+    ];
+    articles.forEach((a,i)=>{
+        const sl=fadeUp(t,a.d,500);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const ay=165+i*105+sl.y;
+        roundRect(20,ay,W-40,88,12,a.bg);
+        ctx.strokeStyle=a.border;ctx.lineWidth=3;
+        ctx.beginPath();ctx.moveTo(20,ay+12);ctx.lineTo(20,ay+76);ctx.stroke();ctx.lineWidth=1;
+        ctx.font='22px sans-serif';ctx.textAlign='left';
+        ctx.fillText(a.icon,35,ay+28);
+        ctx.fillStyle='#fff';ctx.font='700 15px "Segoe UI",sans-serif';
+        ctx.fillText(a.title,60,ay+26);
+        ctx.fillStyle='rgba(255,255,255,0.5)';ctx.font='400 11px "Segoe UI",sans-serif';
+        ctx.fillText(a.sub,60,ay+44);
+        ctx.fillStyle=G200;ctx.font='600 13px "Segoe UI",sans-serif';
+        ctx.fillText(a.val,35,ay+70);
+    });
+    ctx.globalAlpha=1;
+
+    const fp=fadeUp(t,4500,400);
+    ctx.globalAlpha=fp.a;ctx.fillStyle='#fff';ctx.font='600 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Tu sais exactement où va ton argent ! 💪',W/2,H-22+fp.y);
+    ctx.globalAlpha=1;
+}
+
+// S6: Happy result — photo + testimonials (27000-32500)
+function drawS6(t){
+    // Happy image background
+    const zoom=1.03+t/100000;
+    drawImgCover(imgs.happy,0,0,W,H,1,zoom,0,0);
+
+    // Overlay
+    const grd=ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,'rgba(27,94,32,0.8)');
+    grd.addColorStop(0.4,'rgba(27,94,32,0.6)');
+    grd.addColorStop(1,'rgba(0,0,0,0.85)');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawVignette(0.3);
+
+    const ft=fadeUp(t,200,500);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 22px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=10;
+    ctx.fillText('Ils utilisent Plannie 💚',W/2,60+ft.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+    ctx.globalAlpha=1;
+
+    // Testimonials
+    const testimonials=[
+        {name:'Plamedie',loc:'Lubumbashi',text:'"Maintenant je sais exactement quel article me rapporte le plus !"',d:700},
+        {name:'Sarah',loc:'Kinshasa',text:'"J\'ai découvert que je vendais 3 articles à perte... Plannie m\'a sauvée !"',d:1800},
+        {name:'Patrick',loc:'Goma',text:'"Le rapport PDF, c\'est comme avoir un comptable gratuit chaque soir."',d:2900},
+    ];
+    testimonials.forEach((te,i)=>{
+        const sl=fadeUp(t,te.d,600);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const ty=120+i*145+sl.y;
+        roundRect(20,ty,W-40,120,14,'rgba(255,255,255,0.1)','rgba(255,255,255,0.15)');
+        // Avatar circle
+        ctx.beginPath();ctx.arc(55,ty+35,18,0,Math.PI*2);
+        ctx.fillStyle='rgba(255,255,255,0.15)';ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='22px sans-serif';ctx.textAlign='center';
+        ctx.fillText('👤',55,ty+42);
+        // Name
+        ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';
+        ctx.fillText(te.name,82,ty+30);
+        ctx.fillStyle=G300;ctx.font='400 11px "Segoe UI",sans-serif';
+        ctx.fillText('📍 '+te.loc,82,ty+46);
+        // Quote
+        ctx.fillStyle='rgba(255,255,255,0.85)';ctx.font='italic 12px "Segoe UI",sans-serif';
+        ctx.textAlign='center';
+        const words=te.text.split(' ');let line='';let ly=ty+75;
+        words.forEach(w=>{
+            const test=line+w+' ';
+            if(ctx.measureText(test).width>W-80&&line!==''){ctx.fillText(line.trim(),W/2,ly);ly+=16;line=w+' '}
+            else line=test;
+        });
+        ctx.fillText(line.trim(),W/2,ly);
+    });
+    ctx.globalAlpha=1;
+
+    const fe=fadeUp(t,4400,400);
+    ctx.globalAlpha=fe.a;ctx.fillStyle=GOLD;ctx.font='700 16px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=8;
+    ctx.fillText('Rejoins-les ! 🚀',W/2,H-35+fe.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+    ctx.globalAlpha=1;
+}
+
+// S7: Mobile + Web — dual platform (32500-38000)
+function drawS7(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,G900);grd.addColorStop(1,G700);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawParticles(t,12);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Disponible partout ! 🌍',W/2,50+ft.y);
+    ctx.globalAlpha=1;
+
+    // Web card
+    const fw=fadeUp(t,600,600);
+    if(fw.a>0){
+        ctx.globalAlpha=fw.a;ctx.save();ctx.translate(0,fw.y);
+        roundRect(20,85,W-40,180,16,'rgba(255,255,255,0.08)','rgba(255,255,255,0.15)');
+        ctx.font='40px sans-serif';ctx.textAlign='center';ctx.fillText('🌐',W/2,125);
+        ctx.fillStyle='#fff';ctx.font='700 18px "Segoe UI",sans-serif';
+        ctx.fillText('Version Web',W/2,155);
+        ctx.fillStyle=G200;ctx.font='400 13px "Segoe UI",sans-serif';
+        ctx.fillText('Ouvre le lien dans ton navigateur',W/2,178);
+        ctx.fillText('Fonctionne sur tout appareil',W/2,196);
+        ctx.fillText('Rien à installer',W/2,214);
+        drawBadge(W/2,242,'DISPONIBLE MAINTENANT',G500);
+        ctx.restore();
+    }
+
+    // Mobile card
+    const fm=fadeUp(t,1400,600);
+    if(fm.a>0){
+        ctx.globalAlpha=fm.a;ctx.save();ctx.translate(0,fm.y);
+        roundRect(20,290,W-40,180,16,'rgba(255,255,255,0.08)','rgba(255,255,255,0.15)');
+        ctx.font='40px sans-serif';ctx.textAlign='center';ctx.fillText('📱',W/2,330);
+        ctx.fillStyle='#fff';ctx.font='700 18px "Segoe UI",sans-serif';
+        ctx.fillText('Version Android',W/2,360);
+        ctx.fillStyle=G200;ctx.font='400 13px "Segoe UI",sans-serif';
+        ctx.fillText('Application native sur ton téléphone',W/2,383);
+        ctx.fillText('PDF sauvegardé dans Téléchargements',W/2,401);
+        ctx.fillText('100% hors ligne',W/2,419);
+        drawBadge(W/2,447,'📲 NOUVEAU',GOLD,'#333');
+        ctx.restore();
+    }
+
+    // Bottom benefits
+    const benefits=[
+        {text:'✅ Gratuit pour toujours',d:2800},
+        {text:'✅ Sans inscription',d:3200},
+        {text:'✅ Sans publicité',d:3600},
+        {text:'✅ Tes données restent chez toi',d:4000},
+    ];
+    benefits.forEach((b,i)=>{
+        const sl=fadeUp(t,b.d,400);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;ctx.fillStyle='#fff';ctx.font='500 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText(b.text,W/2,502+i*28+sl.y);
+    });
+    ctx.globalAlpha=1;
+}
+
+// S8: Cover + Logo mosaic transition (38000-43000)
+function drawS8(t){
+    ctx.fillStyle='#0a0a0a';ctx.fillRect(0,0,W,H);
+
+    // 4 images in a grid with staggered reveals
+    const grid=[
+        {img:imgs.logo,    x:10, y:10, w:165,h:165,d:200},
+        {img:imgs.cover,   x:185,y:10, w:165,h:165,d:500},
+        {img:imgs.problem, x:10, y:185,w:165,h:120,d:800},
+        {img:imgs.happy,   x:185,y:185,w:165,h:120,d:1100},
+    ];
+    grid.forEach(g=>{
+        const fi=fadeIn(t,g.d,600);
+        if(fi.a<=0)return;
+        ctx.save();ctx.globalAlpha=fi.a;
+        ctx.beginPath();roundRect(g.x,g.y,g.w,g.h,12);ctx.clip();
+        if(g.img.complete&&g.img.naturalWidth){
+            const iAR=g.img.naturalWidth/g.img.naturalHeight;
+            const cAR=g.w/g.h;
+            let sw,sh;
+            if(iAR>cAR){sh=g.h;sw=sh*iAR}else{sw=g.w;sh=sw/iAR}
+            ctx.drawImage(g.img,g.x+(g.w-sw)/2,g.y+(g.h-sh)/2,sw,sh);
+        }
+        ctx.restore();
+    });
+
+    // Overlay fading in
+    const fo=fadeIn(t,1800,600);
+    ctx.globalAlpha=fo.a*0.7;
+    ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+    ctx.globalAlpha=1;
+
+    // Text over
+    const fn=fadeUp(t,2000,500);
+    ctx.globalAlpha=fn.a;ctx.fillStyle='#fff';
+    ctx.font='800 36px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Plannie',W/2,365+fn.y);
+    ctx.fillStyle=G300;ctx.font='400 16px "Segoe UI",sans-serif';
+    ctx.fillText('L\'outil que chaque commerçant(e)',W/2,400+fn.y);
+    ctx.fillText('mérite d\'avoir.',W/2,422+fn.y);
+    ctx.globalAlpha=1;
+
+    // Stats
+    const stats=[
+        {num:'5s',label:'par vente',d:2800},
+        {num:'1',label:'clic pour le rapport',d:3100},
+        {num:'0 FC',label:'ça coûte',d:3400},
+    ];
+    stats.forEach((s,i)=>{
+        const sp=popScale(t,s.d,400);
+        if(sp.a<=0)return;
+        ctx.globalAlpha=sp.a;
+        const sx=60+i*100;
+        ctx.fillStyle=G400;ctx.font=`700 ${22*sp.s}px "Segoe UI",sans-serif`;ctx.textAlign='center';
+        ctx.fillText(s.num,sx,490);
+        ctx.fillStyle='rgba(255,255,255,0.6)';ctx.font='400 11px "Segoe UI",sans-serif';
+        ctx.fillText(s.label,sx,508);
+    });
+    ctx.globalAlpha=1;
+
+    const fe=fadeUp(t,4000,400);
+    ctx.globalAlpha=fe.a;ctx.fillStyle=GOLD;ctx.font='700 15px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Prêt(e) à transformer ton commerce ?',W/2,555+fe.y);
+    ctx.globalAlpha=1;
+}
+
+// S9: CTA Final with phone number (43000-52000)
+function drawS9(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,G800);grd.addColorStop(1,G900);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+
+    // Gentle particles
+    for(let i=0;i<12;i++){
+        const px=(Math.sin(t/900+i*2.5)*0.3+0.5)*W;
+        const py=(Math.cos(t/700+i*1.9)*0.3+0.5)*H;
+        ctx.globalAlpha=0.06+0.04*Math.sin(t/400+i);ctx.beginPath();ctx.arc(px,py,3+Math.sin(t/500+i)*2,0,Math.PI*2);
+        ctx.fillStyle='#fff';ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Logo
+    const fl=fadeUp(t,100,500);
+    drawLogo(W/2,95,65*easeOut(clamp(t/600,0,1)),fl.a);
+
+    // Name
+    const fn=fadeUp(t,300,500);
+    ctx.globalAlpha=fn.a;ctx.fillStyle='#fff';
+    ctx.font='800 42px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Plannie',W/2,175+fn.y);
+
+    // Tagline
+    const fs=fadeUp(t,600,400);
+    ctx.globalAlpha=fs.a;ctx.fillStyle=G200;
+    ctx.font='400 16px "Segoe UI",sans-serif';
+    ctx.fillText('Commerce intelligent.',W/2,205+fs.y);
+    ctx.fillText('Résultats immédiats.',W/2,227+fs.y);
+    ctx.globalAlpha=1;
+
+    // CTA button
+    const fb=fadeUp(t,1000,400);
+    if(fb.a>0){
+        ctx.globalAlpha=fb.a;
+        const bw=270,bh=54,bx=(W-bw)/2,by=258+fb.y;
+        const pulse=0.5+0.5*Math.sin(t/200);
+        ctx.shadowColor=`rgba(255,255,255,${0.15+0.12*pulse})`;
+        ctx.shadowBlur=18+10*pulse;
+        roundRect(bx,by,bw,bh,27,'#fff');
+        ctx.shadowColor='transparent';ctx.shadowBlur=0;
+        ctx.fillStyle=G800;ctx.font='700 17px "Segoe UI",sans-serif';
+        ctx.fillText('🌿 Essaie Plannie !',W/2,by+35);
+    }
+
+    // Sub info
+    const ff=fadeUp(t,1400,400);
+    ctx.globalAlpha=ff.a;ctx.fillStyle='rgba(255,255,255,0.45)';
+    ctx.font='400 12px "Segoe UI",sans-serif';
+    ctx.fillText('Gratuit • Hors ligne • Sans inscription',W/2,340+ff.y);
+    ctx.globalAlpha=1;
+
+    // Divider line
+    const fd=fadeIn(t,2000,300);
+    ctx.globalAlpha=fd.a*0.2;ctx.fillStyle='#fff';
+    ctx.fillRect(W*0.2,375,W*0.6,1);
+    ctx.globalAlpha=1;
+
+    // Contact section
+    const fcon=fadeUp(t,2200,500);
+    if(fcon.a>0){
+        ctx.globalAlpha=fcon.a;ctx.save();ctx.translate(0,fcon.y);
+        ctx.fillStyle='rgba(255,255,255,0.08)';
+        roundRect(30,395,W-60,120,16,'rgba(255,255,255,0.06)','rgba(255,255,255,0.12)');
+
+        ctx.fillStyle='#fff';ctx.font='600 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('📞 Contactez-nous',W/2,425);
+
+        // Phone number with glow
+        ctx.fillStyle=GOLD;ctx.font='800 22px "Segoe UI",sans-serif';
+        ctx.shadowColor='rgba(249,168,37,0.4)';ctx.shadowBlur=12;
+        ctx.fillText(PHONE,W/2,460);
+        ctx.shadowBlur=0;ctx.shadowColor='transparent';
+
+        // WhatsApp hint
+        ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+        ctx.fillText('💬 WhatsApp • 📞 Appel',W/2,488);
+        ctx.restore();
+    }
+
+    // Havila
+    const fh=fadeUp(t,3500,400);
+    ctx.globalAlpha=fh.a*0.35;ctx.fillStyle='#fff';
+    ctx.font='400 11px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('© Plannie 2026 by Havila',W/2,555+fh.y);
+
+    // Lubumbashi
+    const floc=fadeUp(t,3800,300);
+    ctx.globalAlpha=floc.a*0.25;
+    ctx.fillText('📍 Lubumbashi, RD Congo',W/2,575+floc.y);
+    ctx.globalAlpha=1;
+}
+
+// ============ MASTER RENDER ============
+const scenes=[
+    {start:0,     end:5000,  draw:drawS1},
+    {start:5000,  end:10000, draw:drawS2},
+    {start:10000, end:15500, draw:drawS3},
+    {start:15500, end:21500, draw:drawS4},
+    {start:21500, end:27000, draw:drawS5},
+    {start:27000, end:32500, draw:drawS6},
+    {start:32500, end:38000, draw:drawS7},
+    {start:38000, end:43000, draw:drawS8},
+    {start:43000, end:52000, draw:drawS9},
+];
+
+function renderFrame(gt){
+    ctx.save();ctx.clearRect(0,0,W,H);
+    for(const sc of scenes){
+        if(gt>=sc.start&&gt<sc.end){sc.draw(gt-sc.start);break}
+    }
+    if(gt>=DURATION)drawS9(9000);
+    drawProgress(gt);
+    ctx.restore();
+}
+
+// ============ AUDIO ============
+let actx,masterGain,audioDest;
+function initAudio(rec){
+    actx=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=actx.createGain();masterGain.gain.value=0.8;
+    masterGain.connect(actx.destination);
+    if(rec){audioDest=actx.createMediaStreamDestination();masterGain.connect(audioDest)}
+}
+function playTone(f,dur,type='sine',vol=0.15){
+    if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();
+    o.type=type;o.frequency.value=f;g.gain.setValueAtTime(vol,actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+dur);
+    o.connect(g);g.connect(masterGain);o.start();o.stop(actx.currentTime+dur);
+}
+function sfxWhoosh(){
+    if(!actx)return;const n=actx.sampleRate*0.35,buf=actx.createBuffer(1,n,actx.sampleRate),d=buf.getChannelData(0);
+    for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3)*0.25;
+    const s=actx.createBufferSource();s.buffer=buf;
+    const bp=actx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=600;bp.Q.value=0.8;
+    bp.frequency.exponentialRampToValueAtTime(2200,actx.currentTime+0.3);
+    s.connect(bp);bp.connect(masterGain);s.start();
+}
+function sfxDing(){playTone(880,.4);setTimeout(()=>playTone(1320,.5,'sine',.1),80);setTimeout(()=>playTone(1760,.5,'sine',.06),160)}
+function sfxPop(){playTone(600,.1,'sine',.12);setTimeout(()=>playTone(900,.08,'sine',.08),50)}
+function sfxSuccess(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>playTone(f,.3,'sine',.1),i*100))}
+function sfxRise(){
+    if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();o.type='sine';
+    o.frequency.setValueAtTime(200,actx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(800,actx.currentTime+0.6);
+    g.gain.setValueAtTime(0.08,actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+0.7);
+    o.connect(g);g.connect(masterGain);o.start();o.stop(actx.currentTime+0.7);
+}
+function sfxClick(){playTone(1200,.05,'square',.06)}
+function sfxBeat(){playTone(70,.08,'sine',.03)}
+function sfxChime(){
+    playTone(1047,.3,'sine',.08);
+    setTimeout(()=>playTone(1319,.25,'sine',.06),120);
+    setTimeout(()=>playTone(1568,.3,'sine',.05),240);
+    setTimeout(()=>playTone(2093,.4,'sine',.04),360);
+}
+let bgInt;
+function startBg(){bgInt=setInterval(()=>sfxBeat(),500)}
+function stopBg(){clearInterval(bgInt)}
+
+function scheduleSounds(){
+    const ev=[
+        [0,sfxRise],[300,sfxDing],[1200,sfxPop],[2200,sfxPop],
+        [5000,sfxWhoosh],[5700,sfxClick],[6200,sfxClick],[6700,sfxClick],[7200,sfxClick],[7700,sfxClick],
+        [8800,sfxPop],
+        [10000,sfxWhoosh],[10200,sfxDing],[10500,sfxPop],
+        [11600,sfxClick],[12000,sfxClick],[12400,sfxClick],[12800,sfxClick],[13200,sfxClick],[13600,sfxClick],[14000,sfxClick],
+        [15500,sfxWhoosh],[16000,sfxPop],[16700,sfxPop],[17400,sfxPop],[18100,sfxPop],[18800,sfxPop],
+        [20300,sfxClick],
+        [21500,sfxWhoosh],[21700,sfxDing],[22000,sfxPop],
+        [22700,sfxPop],[23300,sfxPop],[23900,sfxPop],[24500,sfxPop],
+        [26000,sfxClick],
+        [27000,sfxWhoosh],[27200,sfxPop],
+        [27700,sfxClick],[28800,sfxClick],
+        [29800,sfxPop],[30200,sfxPop],[30600,sfxPop],[31000,sfxPop],
+        [32500,sfxWhoosh],[32700,sfxDing],[33100,sfxPop],[33600,sfxPop],
+        [34400,sfxClick],[34800,sfxClick],[35200,sfxClick],[35600,sfxClick],
+        [38000,sfxWhoosh],[38200,sfxPop],[38500,sfxPop],[38800,sfxPop],[39100,sfxPop],
+        [40800,sfxPop],[41200,sfxPop],[41600,sfxPop],
+        [43000,sfxRise],[43200,sfxChime],[43800,sfxPop],
+        [44200,sfxSuccess],[45200,sfxPop],[46200,sfxDing],
+    ];
+    ev.forEach(([t,fn])=>setTimeout(fn,t));
+    setTimeout(stopBg,43000);
+}
+
+// ============ PLAYBACK & RECORDING ============
+let isRunning=false;
+function runAd(download){
+    if(isRunning)return;
+    if(imgsLoaded<imgsTotal){
+        document.getElementById('status').textContent='⏳ Chargement des images...';
+        setTimeout(()=>runAd(download),500);return;
+    }
+    isRunning=true;
+    const btnP=document.getElementById('btnPlay'),btnD=document.getElementById('btnDl'),st=document.getElementById('status');
+    btnP.disabled=true;btnD.disabled=true;
+    initAudio(download);
+    let recorder,chunks=[];
+    if(download){
+        st.textContent='⏺ Enregistrement en cours... 52 secondes';
+        const vs=cv.captureStream(FPS);
+        if(audioDest)audioDest.stream.getAudioTracks().forEach(t=>vs.addTrack(t));
+        const mt=MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')?'video/webm;codecs=vp9,opus':
+                  MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')?'video/webm;codecs=vp8,opus':'video/webm';
+        recorder=new MediaRecorder(vs,{mimeType:mt,videoBitsPerSecond:3000000});
+        recorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+        recorder.onstop=()=>{
+            const blob=new Blob(chunks,{type:'video/webm'});const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');a.href=url;a.download='Plannie_Pub_Ultime.webm';
+            document.body.appendChild(a);a.click();a.remove();
+            setTimeout(()=>URL.revokeObjectURL(url),5000);
+            st.textContent='✅ Vidéo téléchargée ! (Plannie_Pub_Ultime.webm)';
+        };
+        recorder.start();
+    }else{st.textContent='▶ Lecture en cours...'}
+    startBg();scheduleSounds();
+    const t0=performance.now();
+    function loop(now){
+        const elapsed=now-t0;renderFrame(Math.min(elapsed,DURATION));
+        if(elapsed<DURATION+500){requestAnimationFrame(loop)}
+        else{
+            if(recorder&&recorder.state==='recording')recorder.stop();
+            isRunning=false;btnP.disabled=false;btnD.disabled=false;
+            if(!download)st.textContent='✅ Lecture terminée';
+        }
+    }
+    requestAnimationFrame(loop);
+}
+renderFrame(0);
+</script>
+</body>
+</html>
