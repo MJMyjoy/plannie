@@ -450,6 +450,10 @@ function renderWelcome() {
             <button class="btn btn-primary scale-in" id="bs" style="animation-delay:.3s">
                 🌿&nbsp; Démarrer la journée
             </button>
+            <a href="https://plannie.onrender.com" target="_blank" rel="noopener"
+               class="btn btn-secondary scale-in" style="animation-delay:.5s;margin-top:12px;text-decoration:none">
+                💼&nbsp; Accéder à Plannie Business
+            </a>
         </div>`;
     document.getElementById('bs').onclick = () => { S.phase='askCount'; render(); };
 }
