@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plannie Business – La Pub</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+    background:#000;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;
+    overflow:hidden;gap:16px;
+}
+canvas{border-radius:16px;box-shadow:0 0 60px rgba(76,175,80,.25);max-width:95vw;max-height:80vh}
+@media(max-width:400px){canvas{border-radius:0}}
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.btn{padding:14px 28px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;display:flex;align-items:center;gap:8px}
+.btn-play{background:#2E7D32;color:#fff}.btn-play:hover{background:#388E3C}
+.btn-dl{background:#fff;color:#2E7D32}.btn-dl:hover{background:#E8F5E9}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.status{color:rgba(255,255,255,.5);font-size:13px;min-height:18px}
+</style>
+</head>
+<body>
+<canvas id="c" width="360" height="640"></canvas>
+<div class="controls">
+    <button class="btn btn-play" id="btnPlay" onclick="runAd(false)">▶ Lancer la pub</button>
+    <button class="btn btn-dl" id="btnDl" onclick="runAd(true)">📥 Télécharger la vidéo</button>
+</div>
+<div class="status" id="status"></div>
+
+<script>
+// ============================================================
+//  Plannie Business — Pub vidéo animée
+//  "La Story visible sur la planète entière"
+// ============================================================
+const W=360, H=640, FPS=30, DURATION=58000;
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+
+// Colors
+const G900='#1B5E20', G800='#2E7D32', G700='#388E3C', G600='#43A047', G500='#4CAF50',
+      G400='#66BB6A', G300='#81C784', G200='#A5D6A7', G100='#C8E6C9', G50='#E8F5E9';
+const GOLD='#F9A825', ORANGE='#EF6C00', BLUE='#1565C0';
+const SITE_URL='plannie-business.onrender.com';
+const PHONE='+243 979 508 196';
+
+// ============ IMAGE LOADING ============
+const imgFiles={
+    logo:      'img/plannie_logo_1792797585289.jpg',
+    cover:     'img/plannie_cover_1792799845450.jpg',
+    happy:     'img/plannie_happy_result_1792799871450.jpg',
+    problem:   'img/plannie_market_problem_1792799857414.jpg',
+    chapatte:  'exp/chapatte_500_chez_colodouce.jpg',
+    chapatte2: 'exp/chapatte_500_chez_colodouce2.jpg',
+    gauffres:  'exp/gauffres_3pcs_a_1000_chez_colodouce.jpg',
+    riz:       'exp/Riz+Sauce+Viande_4000_chez_Bondo_Food.jpg',
+    tissage:   'exp/tissage_et_closur_40000FC_chez_chriska_business.jpg',
+};
+const imgs={};
+let imgsLoaded=0, imgsTotal=Object.keys(imgFiles).length;
+Object.entries(imgFiles).forEach(([k,src])=>{
+    const im=new Image();
+    im.onload=()=>{imgsLoaded++};
+    im.onerror=()=>{imgsLoaded++};
+    im.src=src; imgs[k]=im;
+});
+
+// ============ HELPERS ============
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function easeOut(t){return 1-Math.pow(1-t,3)}
+function easeInOut(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2}
+function fadeUp(t,delay,dur=500){const p=clamp((t-delay)/dur,0,1);return{a:easeOut(p),y:25*(1-easeOut(p))}}
+function fadeIn(t,delay,dur=500){return{a:easeOut(clamp((t-delay)/dur,0,1))}}
+function slideL(t,delay,dur=500){const p=clamp((t-delay)/dur,0,1);return{a:easeOut(p),x:-40*(1-easeOut(p))}}
+function slideR(t,delay,dur=500){const p=clamp((t-delay)/dur,0,1);return{a:easeOut(p),x:40*(1-easeOut(p))}}
+function popScale(t,delay,dur=400){const p=clamp((t-delay)/dur,0,1);const s=p<.7?p/.7*1.15:1.15-(p-.7)/.3*.15;return{a:Math.min(p*2,1),s}}
+
+function roundRect(x,y,w,h,r,fill,stroke){
+    ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+    if(fill){ctx.fillStyle=fill;ctx.fill()}
+    if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke();ctx.lineWidth=1}
+}
+
+function drawLogo(cx,cy,size,alpha=1){
+    ctx.save();ctx.globalAlpha=alpha;ctx.translate(cx,cy);
+    const s=size/80;ctx.scale(s,s);
+    ctx.fillStyle='rgba(255,255,255,0.9)';
+    ctx.beginPath();ctx.moveTo(0,18);ctx.bezierCurveTo(0,-2,14,-22,30,-32);
+    ctx.bezierCurveTo(18,-20,10,-4,8,16);ctx.closePath();ctx.fill();
+    ctx.fillStyle='rgba(200,230,201,0.8)';
+    ctx.beginPath();ctx.moveTo(0,18);ctx.bezierCurveTo(0,-2,-14,-22,-30,-32);
+    ctx.bezierCurveTo(-18,-20,-10,-4,-8,16);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#fff';roundRect(-2,16,4,16,2,'#fff');
+    ctx.restore();
+}
+
+function drawProgress(t){
+    ctx.fillStyle='rgba(255,255,255,0.08)';ctx.fillRect(0,H-4,W,4);
+    const grd=ctx.createLinearGradient(0,0,W*(t/DURATION),0);
+    grd.addColorStop(0,G400);grd.addColorStop(1,'#fff');
+    ctx.fillStyle=grd;ctx.fillRect(0,H-4,W*(t/DURATION),4);
+}
+
+function drawBadge(x,y,text,bg,fg='#fff'){
+    ctx.font='700 11px "Segoe UI",sans-serif';
+    const tw=ctx.measureText(text).width;
+    roundRect(x-tw/2-12,y-11,tw+24,24,12,bg);
+    ctx.fillStyle=fg;ctx.textAlign='center';
+    ctx.fillText(text,x,y+4);
+}
+
+function drawParticles(t,count=15,color=G400){
+    for(let i=0;i<count;i++){
+        const px=(Math.sin(t/800+i*2.1)*0.4+0.5)*W;
+        const py=(Math.cos(t/600+i*1.7)*0.4+0.5)*H;
+        const sz=2+Math.sin(t/400+i)*2;
+        ctx.globalAlpha=0.15+Math.sin(t/500+i)*0.1;
+        ctx.beginPath();ctx.arc(px,py,sz,0,Math.PI*2);
+        ctx.fillStyle=color;ctx.fill();
+    }
+    ctx.globalAlpha=1;
+}
+
+function drawImgCover(img,x,y,w,h,alpha,zoom=1,panX=0,panY=0){
+    if(!img||!img.complete||!img.naturalWidth)return;
+    ctx.save();ctx.globalAlpha=alpha;
+    ctx.beginPath();roundRect(x,y,w,h,0);ctx.clip();
+    const iAR=img.naturalWidth/img.naturalHeight;
+    const cAR=w/h;
+    let sw,sh;
+    if(iAR>cAR){sh=h*zoom;sw=sh*iAR}else{sw=w*zoom;sh=sw/iAR}
+    ctx.drawImage(img,x+(w-sw)/2+panX,y+(h-sh)/2+panY,sw,sh);
+    ctx.restore();
+}
+
+function drawVignette(intensity=0.6){
+    const grd=ctx.createRadialGradient(W/2,H/2,W*0.3,W/2,H/2,W*0.9);
+    grd.addColorStop(0,'rgba(0,0,0,0)');
+    grd.addColorStop(1,`rgba(0,0,0,${intensity})`);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+}
+
+function wrapText(text,x,y,maxW,lineH){
+    const words=text.split(' ');let line='';
+    for(const w of words){
+        const test=line+w+' ';
+        if(ctx.measureText(test).width>maxW&&line!==''){
+            ctx.fillText(line.trim(),x,y);y+=lineH;line=w+' ';
+        }else{line=test}
+    }
+    ctx.fillText(line.trim(),x,y);
+    return y+lineH;
+}
+
+// Draw a product card with image
+function drawProductCard(img,x,y,w,h,name,price,seller,alpha){
+    if(alpha<=0)return;
+    ctx.save();ctx.globalAlpha=alpha;
+    // Card bg
+    roundRect(x,y,w,h,14,'rgba(255,255,255,0.95)');
+    // Image area
+    if(img&&img.complete&&img.naturalWidth){
+        ctx.save();
+        ctx.beginPath();roundRect(x+6,y+6,w-12,(h*0.55),10);ctx.clip();
+        const iAR=img.naturalWidth/img.naturalHeight;
+        const cAR=(w-12)/((h*0.55));
+        let sw2,sh2;
+        if(iAR>cAR){sh2=h*0.55;sw2=sh2*iAR}else{sw2=w-12;sh2=sw2/iAR}
+        ctx.drawImage(img,x+6+((w-12)-sw2)/2,y+6+((h*0.55)-sh2)/2,sw2,sh2);
+        ctx.restore();
+    }
+    // Name
+    const ty=y+h*0.55+22;
+    ctx.fillStyle='#1A1A1A';ctx.font='700 12px "Segoe UI",sans-serif';ctx.textAlign='left';
+    ctx.fillText(name,x+10,ty);
+    // Price
+    ctx.fillStyle=G800;ctx.font='800 14px "Segoe UI",sans-serif';
+    ctx.fillText(price,x+10,ty+18);
+    // Seller
+    ctx.fillStyle='#888';ctx.font='400 10px "Segoe UI",sans-serif';
+    ctx.fillText('📍 '+seller,x+10,ty+34);
+    ctx.restore();
+}
+
+// ============================================================
+//  SCENES
+// ============================================================
+
+// S1: HOOK — Cover cinematic (0 - 6000)
+function drawS1(t){
+    // Market problem image as background
+    const zoom=1+t/50000;
+    drawImgCover(imgs.problem,0,0,W,H,1,zoom,0,-t*0.003);
+
+    // Heavy overlay
+    const grd=ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,'rgba(0,0,0,0.4)');
+    grd.addColorStop(0.5,'rgba(0,0,0,0.2)');
+    grd.addColorStop(1,'rgba(0,0,0,0.85)');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawVignette(0.4);
+
+    // Sparkle
+    for(let i=0;i<8;i++){
+        const px=(Math.sin(t/1000+i*3)*0.3+0.5)*W;
+        const py=H*0.15+(Math.cos(t/800+i*2)*0.15)*H;
+        const blink=0.3+0.7*Math.abs(Math.sin(t/300+i*1.5));
+        ctx.globalAlpha=0.2*blink;ctx.fillStyle='#fff';
+        ctx.beginPath();ctx.arc(px,py,1.5,0,Math.PI*2);ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Question hook
+    const f1=fadeUp(t,400,700);
+    ctx.globalAlpha=f1.a;ctx.fillStyle='#fff';
+    ctx.font='700 24px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.shadowColor='rgba(0,0,0,0.6)';ctx.shadowBlur=15;
+    ctx.fillText('Tu vends au marché',W/2,H*0.35+f1.y);
+    ctx.fillText('ou en boutique… 🛍️',W/2,H*0.35+35+f1.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+
+    const f2=fadeUp(t,2000,700);
+    ctx.globalAlpha=f2.a;ctx.fillStyle=GOLD;
+    ctx.font='700 22px "Segoe UI",sans-serif';
+    ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=10;
+    ctx.fillText('Mais qui voit tes articles',W/2,H*0.55+f2.y);
+    ctx.fillText('en dehors de tes contacts',W/2,H*0.55+32+f2.y);
+    ctx.fillText('WhatsApp ? 🤔',W/2,H*0.55+64+f2.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+
+    // Bottom hint
+    const fa=fadeUp(t,4200,400);
+    if(fa.a>0){
+        ctx.globalAlpha=fa.a*(0.4+0.6*Math.abs(Math.sin(t/350)));
+        ctx.fillStyle='#fff';ctx.font='18px sans-serif';ctx.textAlign='center';
+        ctx.fillText('↓',W/2,H-30);
+    }
+    ctx.globalAlpha=1;
+}
+
+// S2: LE PROBLÈME (6000 - 12000)
+function drawS2(t){
+    ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Le problème... 😔',W/2,50+ft.y);
+    ctx.globalAlpha=1;
+
+    const problems=[
+        {icon:'📱',text:'Les statuts WhatsApp disparaissent',sub:'en 24 heures',color:'#EF5350',d:500},
+        {icon:'🔒',text:'Seuls tes contacts les voient',sub:'pas de nouveaux clients',color:'#FF7043',d:1100},
+        {icon:'📸',text:'1 seule photo, 0 description',sub:'le client ne sait rien de l\'article',color:'#FFA726',d:1700},
+        {icon:'🚫',text:'Pas de numéro, pas de prix',sub:'le client doit deviner',color:'#EF6C00',d:2300},
+        {icon:'🌐',text:'Pas de présence sur Internet',sub:'ton commerce est invisible',color:'#C62828',d:2900},
+    ];
+    problems.forEach((p,i)=>{
+        const sl=slideL(t,p.d,500);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const py=100+i*96;
+        roundRect(20+sl.x,py,W-40,80,12,'rgba(255,255,255,0.04)','rgba(255,255,255,0.08)');
+        // Color bar left
+        ctx.fillStyle=p.color;ctx.fillRect(20+sl.x,py+10,4,60);
+        // Icon
+        ctx.font='28px sans-serif';ctx.textAlign='center';
+        ctx.fillText(p.icon,52+sl.x,py+38);
+        // Text
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='600 14px "Segoe UI",sans-serif';
+        ctx.fillText(p.text,75+sl.x,py+32);
+        ctx.fillStyle='rgba(255,255,255,0.45)';ctx.font='400 12px "Segoe UI",sans-serif';
+        ctx.fillText(p.sub,75+sl.x,py+52);
+    });
+    ctx.globalAlpha=1;
+
+    // Transition
+    const fe=fadeUp(t,4500,500);
+    ctx.globalAlpha=fe.a;ctx.fillStyle=G400;
+    ctx.font='700 18px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Et si tout changeait ? ✨',W/2,H-30+fe.y);
+    ctx.globalAlpha=1;
+}
+
+// S3: LA SOLUTION — Plannie Business arrive ! (12000 - 18000)
+function drawS3(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,'#0D3B14');grd.addColorStop(1,G900);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawParticles(t,20);
+
+    // Flash at start
+    if(t<400){
+        ctx.fillStyle=`rgba(255,255,255,${0.5*(1-t/400)})`;
+        ctx.fillRect(0,0,W,H);
+    }
+
+    // Logo image
+    const fl=popScale(t,200,700);
+    if(fl.a>0&&imgs.logo.complete){
+        ctx.save();ctx.globalAlpha=fl.a;
+        const sz=85*fl.s;
+        ctx.beginPath();ctx.arc(W/2,H*0.2,sz/2+4,0,Math.PI*2);
+        ctx.fillStyle='rgba(255,255,255,0.15)';ctx.fill();
+        ctx.beginPath();ctx.arc(W/2,H*0.2,sz/2,0,Math.PI*2);ctx.clip();
+        ctx.drawImage(imgs.logo,W/2-sz/2,H*0.2-sz/2,sz,sz);
+        ctx.restore();
+    }
+
+    // Name
+    const fn=fadeUp(t,600,600);
+    ctx.globalAlpha=fn.a;ctx.fillStyle='#fff';
+    ctx.font='800 40px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Plannie',W/2,H*0.34+fn.y);
+
+    // Business badge
+    const fb=popScale(t,900,400);
+    if(fb.a>0){
+        ctx.globalAlpha=fb.a;
+        drawBadge(W/2,H*0.34+28,'BUSINESS',GOLD,'#333');
+    }
+
+    // Slogan
+    const fs=fadeUp(t,1300,500);
+    ctx.globalAlpha=fs.a;ctx.fillStyle=G200;
+    ctx.font='italic 16px "Segoe UI",sans-serif';
+    ctx.fillText('« La Story visible sur',W/2,H*0.44+fs.y);
+    ctx.fillText('la planète entière »',W/2,H*0.44+24+fs.y);
+    ctx.globalAlpha=1;
+
+    // What is it
+    const features=[
+        {icon:'🛒',text:'Un marché en ligne local',sub:'comme Amazon, mais pour ta ville !',d:2200},
+        {icon:'📸',text:'Publie tes articles avec photos',sub:'prix, description, réseaux sociaux',d:2800},
+        {icon:'🌍',text:'Visible par TOUT LE MONDE',sub:'pas seulement tes contacts WhatsApp !',d:3400},
+        {icon:'💚',text:'100% GRATUIT',sub:'pas d\'abonnement, pas de frais cachés',d:4000},
+    ];
+    features.forEach((f,i)=>{
+        const sl=slideL(t,f.d,450);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const fy=H*0.52+i*62;
+        roundRect(20+sl.x,fy,W-40,52,10,'rgba(255,255,255,0.07)','rgba(255,255,255,0.1)');
+        ctx.font='22px sans-serif';ctx.textAlign='center';
+        ctx.fillText(f.icon,48+sl.x,fy+30);
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='600 13px "Segoe UI",sans-serif';
+        ctx.fillText(f.text,70+sl.x,fy+22);
+        ctx.fillStyle=G300;ctx.font='400 11px "Segoe UI",sans-serif';
+        ctx.fillText(f.sub,70+sl.x,fy+40);
+    });
+    ctx.globalAlpha=1;
+}
+
+// S4: DÉMO PRODUITS — vrais articles locaux (18000 - 26000)
+function drawS4(t){
+    // Background
+    const grd=ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,'#f8faf8');grd.addColorStop(1,'#e8f5e9');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+
+    // Title
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle=G800;
+    ctx.font='700 18px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Regarde ce qu\'on y trouve ! 👀',W/2,40+ft.y);
+    ctx.globalAlpha=1;
+
+    // Subtitle
+    const fs=fadeIn(t,300,300);
+    ctx.globalAlpha=fs.a*0.5;ctx.fillStyle='#666';
+    ctx.font='400 12px "Segoe UI",sans-serif';
+    ctx.fillText('De vrais articles de Lubumbashi',W/2,60);
+    ctx.globalAlpha=1;
+
+    // Product cards — 2 columns, staggered
+    const products=[
+        {img:imgs.chapatte, name:'Chapatte', price:'500 FC', seller:'Colo Douce', d:600},
+        {img:imgs.gauffres,  name:'Gauffres (3 pcs)', price:'1.000 FC', seller:'Colo Douce', d:1000},
+        {img:imgs.riz,       name:'Riz+Sauce+Viande', price:'4.000 FC', seller:'Bondo Food', d:1600},
+        {img:imgs.tissage,   name:'Tissage & Closure', price:'40.000 FC', seller:'Chriska Business', d:2200},
+    ];
+
+    const cardW=150, cardH=185, gap=16, startX=(W-cardW*2-gap)/2;
+    products.forEach((p,i)=>{
+        const sl=fadeUp(t,p.d,600);
+        if(sl.a<=0)return;
+        const col=i%2, row=Math.floor(i/2);
+        const cx=startX+col*(cardW+gap);
+        const cy=80+row*(cardH+gap)+sl.y;
+        // Shadow
+        ctx.save();ctx.globalAlpha=sl.a*0.15;
+        ctx.shadowColor='rgba(0,0,0,0.15)';ctx.shadowBlur=12;ctx.shadowOffsetY=4;
+        roundRect(cx,cy,cardW,cardH,14,'#fff');
+        ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetY=0;
+        ctx.restore();
+        drawProductCard(p.img,cx,cy,cardW,cardH,p.name,p.price,p.seller,sl.a);
+    });
+
+    // "Et bien plus encore !" with scroll animation
+    const fp=fadeUp(t,4000,500);
+    if(fp.a>0){
+        ctx.globalAlpha=fp.a;
+        roundRect(30,H-130+fp.y,W-60,50,14,G800);
+        ctx.fillStyle='#fff';ctx.font='700 15px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Et des centaines d\'autres ! 🔥',W/2,H-100+fp.y);
+    }
+
+    // Bottom categories
+    const cats=['Nourriture','Mode','Beauté','Électronique','Services'];
+    const fc=fadeUp(t,5000,400);
+    if(fc.a>0){
+        ctx.globalAlpha=fc.a;
+        const catW=(W-40-(cats.length-1)*6)/cats.length;
+        cats.forEach((c,i)=>{
+            const cx2=20+i*(catW+6);
+            roundRect(cx2,H-65+fc.y,catW,28,8,G50,G500);
+            ctx.fillStyle=G800;ctx.font='600 9px "Segoe UI",sans-serif';ctx.textAlign='center';
+            ctx.fillText(c,cx2+catW/2,H-47+fc.y);
+        });
+    }
+    ctx.globalAlpha=1;
+}
+
+// S5: AVANTAGES — Pourquoi Plannie Business (26000 - 33000)
+function drawS5(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,G900);grd.addColorStop(1,'#0D3B14');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawParticles(t,12,G300);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Pourquoi Plannie Business ? 💡',W/2,50+ft.y);
+    ctx.globalAlpha=1;
+
+    const advantages=[
+        {icon:'🌐',title:'Visible partout',desc:'Ton article est vu par des milliers de personnes, pas juste tes contacts',bg:'rgba(21,101,192,0.15)',border:BLUE,d:500},
+        {icon:'📱',title:'Comme un statut WhatsApp',desc:'Mais qui ne disparaît JAMAIS et que tout le monde peut voir !',bg:'rgba(76,175,80,0.15)',border:G500,d:1200},
+        {icon:'🔗',title:'Partage viral',desc:'Chaque vendeur partage le lien → tous les articles deviennent plus visibles !',bg:'rgba(249,168,37,0.12)',border:GOLD,d:1900},
+        {icon:'📋',title:'Infos complètes',desc:'Photos, prix, description, numéro WhatsApp, lieux de livraison',bg:'rgba(102,187,106,0.12)',border:G400,d:2600},
+        {icon:'💰',title:'GRATUIT pour toujours',desc:'Publie autant d\'articles que tu veux, sans payer 1 seul franc',bg:'rgba(255,255,255,0.08)',border:'#fff',d:3300},
+        {icon:'🚀',title:'Simple et rapide',desc:'Remplis le formulaire, envoie, ton article est en ligne !',bg:'rgba(239,108,0,0.12)',border:ORANGE,d:4000},
+    ];
+    advantages.forEach((a,i)=>{
+        const sl=slideL(t,a.d,500);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const ay=85+i*86;
+        roundRect(20+sl.x,ay,W-40,74,12,a.bg);
+        ctx.fillStyle=a.border;ctx.fillRect(20+sl.x,ay+12,4,50);
+        ctx.font='24px sans-serif';ctx.textAlign='center';
+        ctx.fillText(a.icon,50+sl.x,ay+32);
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='700 14px "Segoe UI",sans-serif';
+        ctx.fillText(a.title,70+sl.x,ay+26);
+        ctx.fillStyle=G200;ctx.font='400 11px "Segoe UI",sans-serif';
+        wrapText(a.desc,70+sl.x,ay+44,W-110,14);
+    });
+
+    ctx.globalAlpha=1;
+}
+
+// S6: COMMENT ÇA MARCHE — 3 étapes (33000 - 39000)
+function drawS6(t){
+    ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Comment ça marche ? 🤔',W/2,55+ft.y);
+    ctx.fillStyle='rgba(255,255,255,0.4)';ctx.font='400 13px "Segoe UI",sans-serif';
+    ctx.fillText('3 étapes, c\'est tout !',W/2,80+ft.y);
+    ctx.globalAlpha=1;
+
+    const steps=[
+        {
+            num:'1', title:'Remplis le formulaire',
+            desc:'Nom de l\'article, prix, description, photos, ton numéro WhatsApp et les lieux de livraison.',
+            icon:'📝', color:G500, d:600
+        },
+        {
+            num:'2', title:'On publie ton article',
+            desc:'L\'équipe Plannie vérifie et publie ton article sur le site. Tu reçois un e-mail de confirmation !',
+            icon:'✅', color:GOLD, d:1800
+        },
+        {
+            num:'3', title:'Partage et vends !',
+            desc:'Partage le lien du site sur WhatsApp, Facebook, TikTok. Les clients te contactent directement.',
+            icon:'🚀', color:ORANGE, d:3000
+        },
+    ];
+
+    steps.forEach((s,i)=>{
+        const sl=fadeUp(t,s.d,700);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const sy=115+i*158+sl.y;
+
+        // Card
+        roundRect(20,sy,W-40,140,16,'rgba(255,255,255,0.05)','rgba(255,255,255,0.1)');
+
+        // Number circle
+        ctx.beginPath();ctx.arc(55,sy+35,20,0,Math.PI*2);
+        ctx.fillStyle=s.color;ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='800 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText(s.num,55,sy+42);
+
+        // Icon
+        ctx.font='34px sans-serif';ctx.fillText(s.icon,W-55,sy+40);
+
+        // Title
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='700 16px "Segoe UI",sans-serif';
+        ctx.fillText(s.title,88,sy+30);
+
+        // Description
+        ctx.fillStyle='rgba(255,255,255,0.6)';ctx.font='400 12px "Segoe UI",sans-serif';
+        wrapText(s.desc,40,sy+65,W-80,17);
+    });
+
+    // Connector lines
+    if(t>800){
+        const la=fadeIn(t,800,400);
+        ctx.globalAlpha=la.a*0.2;ctx.strokeStyle=G500;ctx.lineWidth=2;ctx.setLineDash([4,4]);
+        ctx.beginPath();ctx.moveTo(55,270);ctx.lineTo(55,278);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(55,428);ctx.lineTo(55,436);ctx.stroke();
+        ctx.setLineDash([]);ctx.lineWidth=1;
+    }
+    ctx.globalAlpha=1;
+}
+
+// S7: TÉMOIGNAGES + photos happy (39000 - 45000)
+function drawS7(t){
+    // Happy image bg
+    const zoom=1.03+t/100000;
+    drawImgCover(imgs.happy,0,0,W,H,1,zoom,0,0);
+
+    // Overlay
+    const grd=ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,'rgba(27,94,32,0.85)');
+    grd.addColorStop(0.4,'rgba(27,94,32,0.65)');
+    grd.addColorStop(1,'rgba(0,0,0,0.9)');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawVignette(0.3);
+
+    const ft=fadeUp(t,200,500);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=10;
+    ctx.fillText('Ce qu\'ils en pensent 💚',W/2,55+ft.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+    ctx.globalAlpha=1;
+
+    const testimonials=[
+        {name:'Plamedie',loc:'Lubumbashi',text:'"J\'ai mis mes pagnes en ligne le lundi. Mercredi j\'avais déjà 3 clientes via WhatsApp !"',d:600},
+        {name:'Amani',loc:'Lubumbashi',text:'"C\'est comme un statut WhatsApp mais que tout le monde peut voir, même ceux qui n\'ont pas mon numéro."',d:1800},
+        {name:'Sarah',loc:'Kinshasa',text:'"J\'ai partagé le lien une seule fois sur Facebook. Mes articles ont été vus par des gens de 4 villes !"',d:3000},
+    ];
+    testimonials.forEach((te,i)=>{
+        const sl=fadeUp(t,te.d,600);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const ty=95+i*165+sl.y;
+        roundRect(20,ty,W-40,140,14,'rgba(255,255,255,0.1)','rgba(255,255,255,0.15)');
+        // Avatar
+        ctx.beginPath();ctx.arc(55,ty+35,18,0,Math.PI*2);
+        ctx.fillStyle='rgba(255,255,255,0.15)';ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='22px sans-serif';ctx.textAlign='center';
+        ctx.fillText('👤',55,ty+42);
+        // Name
+        ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';
+        ctx.fillText(te.name,82,ty+30);
+        ctx.fillStyle=G300;ctx.font='400 11px "Segoe UI",sans-serif';
+        ctx.fillText('📍 '+te.loc,82,ty+46);
+        // Quote
+        ctx.fillStyle='rgba(255,255,255,0.85)';ctx.font='italic 12px "Segoe UI",sans-serif';
+        ctx.textAlign='center';
+        wrapText(te.text,W/2-130,ty+75,260,16);
+    });
+    ctx.globalAlpha=1;
+
+    const fe=fadeUp(t,5000,400);
+    ctx.globalAlpha=fe.a;ctx.fillStyle=GOLD;ctx.font='700 16px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=8;
+    ctx.fillText('Rejoins-les ! 🚀',W/2,H-25+fe.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+    ctx.globalAlpha=1;
+}
+
+// S8: COMPARAISON WhatsApp vs Plannie Business (45000 - 50000)
+function drawS8(t){
+    ctx.fillStyle='#0a0a0a';ctx.fillRect(0,0,W,H);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 18px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('WhatsApp vs Plannie Business',W/2,45+ft.y);
+    ctx.globalAlpha=1;
+
+    // Table header
+    const fh=fadeIn(t,400,300);
+    ctx.globalAlpha=fh.a;
+    const colW=(W-40)/2;
+    // WhatsApp column
+    roundRect(20,70,colW-5,40,8,'rgba(37,211,102,0.15)');
+    ctx.fillStyle='#25D366';ctx.font='700 13px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('📱 WhatsApp',20+colW/2-2,95);
+    // Plannie column
+    roundRect(20+colW+5,70,colW-5,40,8,'rgba(76,175,80,0.15)');
+    ctx.fillStyle=G400;ctx.font='700 13px "Segoe UI",sans-serif';
+    ctx.fillText('🌿 Plannie Business',20+colW+5+colW/2-2,95);
+    ctx.globalAlpha=1;
+
+    // Comparison rows
+    const rows=[
+        {wa:'❌ Disparaît en 24h',  pb:'✅ Reste en ligne',       d:700},
+        {wa:'❌ Contacts seulement', pb:'✅ Le monde entier',      d:1100},
+        {wa:'❌ 1 photo, 0 info',   pb:'✅ Photos + infos complètes',d:1500},
+        {wa:'❌ Pas de prix affiché',pb:'✅ Prix + devise + lieu',  d:1900},
+        {wa:'❌ Pas de catégories',  pb:'✅ Catégories organisées', d:2300},
+        {wa:'❌ Pas de commentaires',pb:'✅ Avis des clients',      d:2700},
+        {wa:'❌ Pas de lien partageable',pb:'✅ Lien unique à partager',d:3100},
+    ];
+    rows.forEach((r,i)=>{
+        const sl=fadeUp(t,r.d,400);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const ry=125+i*66+sl.y;
+        // WA side
+        roundRect(20,ry,colW-5,52,8,'rgba(255,255,255,0.03)');
+        ctx.fillStyle='rgba(255,100,100,0.8)';ctx.font='500 11px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText(r.wa,20+colW/2-2,ry+30);
+        // PB side
+        roundRect(20+colW+5,ry,colW-5,52,8,'rgba(76,175,80,0.06)');
+        ctx.fillStyle=G300;ctx.font='600 11px "Segoe UI",sans-serif';
+        ctx.fillText(r.pb,20+colW+5+colW/2-2,ry+30);
+    });
+    ctx.globalAlpha=1;
+
+    // Winner
+    const fw=fadeUp(t,4000,500);
+    if(fw.a>0){
+        ctx.globalAlpha=fw.a;
+        const blink=0.8+0.2*Math.sin(t/200);
+        ctx.globalAlpha=fw.a*blink;
+        drawBadge(W/2,H-30+fw.y,'🏆 LE GAGNANT EST CLAIR !',G800);
+    }
+    ctx.globalAlpha=1;
+}
+
+// S9: CTA FINAL — site + contact (50000 - 58000)
+function drawS9(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,G800);grd.addColorStop(1,G900);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+
+    // Particles
+    for(let i=0;i<12;i++){
+        const px=(Math.sin(t/900+i*2.5)*0.3+0.5)*W;
+        const py=(Math.cos(t/700+i*1.9)*0.3+0.5)*H;
+        ctx.globalAlpha=0.06+0.04*Math.sin(t/400+i);
+        ctx.beginPath();ctx.arc(px,py,3+Math.sin(t/500+i)*2,0,Math.PI*2);
+        ctx.fillStyle='#fff';ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Logo
+    const fl=fadeUp(t,100,500);
+    if(fl.a>0&&imgs.logo.complete){
+        ctx.save();ctx.globalAlpha=fl.a;
+        const sz=75;
+        ctx.beginPath();ctx.arc(W/2,85,sz/2+3,0,Math.PI*2);
+        ctx.fillStyle='rgba(255,255,255,0.12)';ctx.fill();
+        ctx.beginPath();ctx.arc(W/2,85,sz/2,0,Math.PI*2);ctx.clip();
+        ctx.drawImage(imgs.logo,W/2-sz/2,85-sz/2,sz,sz);
+        ctx.restore();
+    }
+
+    // Name
+    const fn=fadeUp(t,300,500);
+    ctx.globalAlpha=fn.a;ctx.fillStyle='#fff';
+    ctx.font='800 38px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Plannie',W/2,155+fn.y);
+
+    // Business badge
+    const fb=popScale(t,500,400);
+    if(fb.a>0){ctx.globalAlpha=fb.a;drawBadge(W/2,178,'BUSINESS',GOLD,'#333')}
+
+    // Slogan
+    const fs=fadeUp(t,800,400);
+    ctx.globalAlpha=fs.a;ctx.fillStyle=G200;
+    ctx.font='italic 15px "Segoe UI",sans-serif';
+    ctx.fillText('La Story visible sur',W/2,208+fs.y);
+    ctx.fillText('la planète entière 🌍',W/2,228+fs.y);
+    ctx.globalAlpha=1;
+
+    // CTA button
+    const fcta=fadeUp(t,1200,400);
+    if(fcta.a>0){
+        ctx.globalAlpha=fcta.a;
+        const bw=280,bh=50,bx=(W-bw)/2,by=252+fcta.y;
+        const pulse=0.5+0.5*Math.sin(t/200);
+        ctx.shadowColor=`rgba(255,255,255,${0.15+0.12*pulse})`;
+        ctx.shadowBlur=18+10*pulse;
+        roundRect(bx,by,bw,bh,25,'#fff');
+        ctx.shadowColor='transparent';ctx.shadowBlur=0;
+        ctx.fillStyle=G800;ctx.font='700 15px "Segoe UI",sans-serif';
+        ctx.fillText('🌿 Publie ton article GRATUITEMENT',W/2,by+32);
+    }
+
+    // URL
+    const fu=fadeUp(t,1800,400);
+    ctx.globalAlpha=fu.a;ctx.fillStyle=GOLD;
+    ctx.font='700 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.shadowColor='rgba(249,168,37,0.3)';ctx.shadowBlur=8;
+    ctx.fillText('🔗 '+SITE_URL,W/2,330+fu.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+    ctx.globalAlpha=1;
+
+    // Sub info
+    const fi=fadeUp(t,2200,400);
+    ctx.globalAlpha=fi.a*0.5;ctx.fillStyle='#fff';
+    ctx.font='400 12px "Segoe UI",sans-serif';
+    ctx.fillText('Gratuit • Aucune inscription requise',W/2,358+fi.y);
+    ctx.globalAlpha=1;
+
+    // Divider
+    const fd=fadeIn(t,2600,300);
+    ctx.globalAlpha=fd.a*0.2;ctx.fillStyle='#fff';
+    ctx.fillRect(W*0.2,385,W*0.6,1);
+    ctx.globalAlpha=1;
+
+    // Contact box
+    const fcon=fadeUp(t,2800,500);
+    if(fcon.a>0){
+        ctx.globalAlpha=fcon.a;ctx.save();ctx.translate(0,fcon.y);
+        roundRect(25,400,W-50,100,16,'rgba(255,255,255,0.06)','rgba(255,255,255,0.12)');
+
+        ctx.fillStyle='#fff';ctx.font='600 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('📞 Contactez-nous',W/2,425);
+
+        ctx.fillStyle=GOLD;ctx.font='800 20px "Segoe UI",sans-serif';
+        ctx.shadowColor='rgba(249,168,37,0.4)';ctx.shadowBlur=12;
+        ctx.fillText(PHONE,W/2,455);
+        ctx.shadowBlur=0;ctx.shadowColor='transparent';
+
+        ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+        ctx.fillText('💬 WhatsApp • 📞 Appel',W/2,480);
+        ctx.restore();
+    }
+
+    // Benefits bar
+    const benefits=['Commerçants','Boutiques','Vendeurs ambulants','Freelancers'];
+    const fben=fadeUp(t,4000,400);
+    if(fben.a>0){
+        ctx.globalAlpha=fben.a*0.6;ctx.fillStyle='#fff';
+        ctx.font='400 11px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Pour : '+benefits.join(' • '),W/2,535+fben.y);
+    }
+
+    // Havila
+    const fh=fadeUp(t,4500,400);
+    ctx.globalAlpha=fh.a*0.3;ctx.fillStyle='#fff';
+    ctx.font='400 11px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('© Plannie Business 2026 – by Havila',W/2,560+fh.y);
+
+    // Location
+    const floc=fadeUp(t,4800,300);
+    ctx.globalAlpha=floc.a*0.2;
+    ctx.fillText('📍 Lubumbashi, RD Congo',W/2,580+floc.y);
+    ctx.globalAlpha=1;
+}
+
+// ============ MASTER RENDER ============
+const scenes=[
+    {start:0,     end:6000,  draw:drawS1},
+    {start:6000,  end:12000, draw:drawS2},
+    {start:12000, end:18000, draw:drawS3},
+    {start:18000, end:26000, draw:drawS4},
+    {start:26000, end:33000, draw:drawS5},
+    {start:33000, end:39000, draw:drawS6},
+    {start:39000, end:45000, draw:drawS7},
+    {start:45000, end:50000, draw:drawS8},
+    {start:50000, end:58000, draw:drawS9},
+];
+
+function renderFrame(gt){
+    ctx.save();ctx.clearRect(0,0,W,H);
+    for(const sc of scenes){
+        if(gt>=sc.start&&gt<sc.end){sc.draw(gt-sc.start);break}
+    }
+    if(gt>=DURATION) drawS9(8000);
+    drawProgress(gt);
+    ctx.restore();
+}
+
+// ============ AUDIO ============
+let actx,masterGain,audioDest;
+function initAudio(rec){
+    actx=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=actx.createGain();masterGain.gain.value=0.8;
+    masterGain.connect(actx.destination);
+    if(rec){audioDest=actx.createMediaStreamDestination();masterGain.connect(audioDest)}
+}
+function playTone(f,dur,type='sine',vol=0.15){
+    if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();
+    o.type=type;o.frequency.value=f;g.gain.setValueAtTime(vol,actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+dur);
+    o.connect(g);g.connect(masterGain);o.start();o.stop(actx.currentTime+dur);
+}
+function sfxWhoosh(){
+    if(!actx)return;const n=actx.sampleRate*0.35,buf=actx.createBuffer(1,n,actx.sampleRate),d=buf.getChannelData(0);
+    for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3)*0.25;
+    const s=actx.createBufferSource();s.buffer=buf;
+    const bp=actx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=600;bp.Q.value=0.8;
+    bp.frequency.exponentialRampToValueAtTime(2200,actx.currentTime+0.3);
+    s.connect(bp);bp.connect(masterGain);s.start();
+}
+function sfxDing(){playTone(880,.4);setTimeout(()=>playTone(1320,.5,'sine',.1),80);setTimeout(()=>playTone(1760,.5,'sine',.06),160)}
+function sfxPop(){playTone(600,.1,'sine',.12);setTimeout(()=>playTone(900,.08,'sine',.08),50)}
+function sfxSuccess(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>playTone(f,.3,'sine',.1),i*100))}
+function sfxRise(){
+    if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();o.type='sine';
+    o.frequency.setValueAtTime(200,actx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(800,actx.currentTime+0.6);
+    g.gain.setValueAtTime(0.08,actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+0.7);
+    o.connect(g);g.connect(masterGain);o.start();o.stop(actx.currentTime+0.7);
+}
+function sfxClick(){playTone(1200,.05,'square',.06)}
+function sfxBeat(){playTone(70,.08,'sine',.03)}
+function sfxChime(){
+    playTone(1047,.3,'sine',.08);
+    setTimeout(()=>playTone(1319,.25,'sine',.06),120);
+    setTimeout(()=>playTone(1568,.3,'sine',.05),240);
+    setTimeout(()=>playTone(2093,.4,'sine',.04),360);
+}
+let bgInt;
+function startBg(){bgInt=setInterval(()=>sfxBeat(),500)}
+function stopBg(){clearInterval(bgInt)}
+
+function scheduleSounds(){
+    const ev=[
+        // S1: Hook
+        [0,sfxRise],[300,sfxDing],[1200,sfxPop],[2000,sfxPop],[4200,sfxPop],
+        // S2: Problems
+        [6000,sfxWhoosh],[6500,sfxClick],[7100,sfxClick],[7700,sfxClick],[8300,sfxClick],[8900,sfxClick],
+        [10500,sfxPop],
+        // S3: Solution
+        [12000,sfxWhoosh],[12200,sfxDing],[12600,sfxPop],[12900,sfxChime],
+        [14200,sfxClick],[14800,sfxClick],[15400,sfxClick],[16000,sfxClick],
+        // S4: Products
+        [18000,sfxWhoosh],[18100,sfxPop],
+        [18600,sfxPop],[19000,sfxPop],[19600,sfxPop],[20200,sfxPop],
+        [22000,sfxPop],[23000,sfxDing],
+        // S5: Advantages
+        [26000,sfxWhoosh],[26200,sfxPop],
+        [26500,sfxClick],[27200,sfxClick],[27900,sfxClick],[28600,sfxClick],[29300,sfxClick],[30000,sfxClick],
+        // S6: How it works
+        [33000,sfxWhoosh],[33200,sfxDing],
+        [33600,sfxPop],[34800,sfxPop],[36000,sfxPop],
+        // S7: Testimonials
+        [39000,sfxWhoosh],[39200,sfxPop],
+        [39600,sfxClick],[40800,sfxClick],[42000,sfxClick],
+        [44000,sfxDing],
+        // S8: Comparison
+        [45000,sfxWhoosh],[45200,sfxDing],
+        [45700,sfxClick],[46100,sfxClick],[46500,sfxClick],[46900,sfxClick],[47300,sfxClick],[47700,sfxClick],[48100,sfxClick],
+        [49000,sfxSuccess],
+        // S9: CTA
+        [50000,sfxRise],[50200,sfxChime],[50800,sfxPop],
+        [51200,sfxSuccess],[52200,sfxPop],[53200,sfxDing],[54800,sfxPop],
+    ];
+    ev.forEach(([t,fn])=>setTimeout(fn,t));
+    setTimeout(stopBg,50000);
+}
+
+// ============ PLAYBACK & RECORDING ============
+let isRunning=false;
+function runAd(download){
+    if(isRunning)return;
+    if(imgsLoaded<imgsTotal){
+        document.getElementById('status').textContent='⏳ Chargement des images...';
+        setTimeout(()=>runAd(download),500);return;
+    }
+    isRunning=true;
+    const btnP=document.getElementById('btnPlay'),btnD=document.getElementById('btnDl'),st=document.getElementById('status');
+    btnP.disabled=true;btnD.disabled=true;
+    initAudio(download);
+    let recorder,chunks=[];
+    if(download){
+        st.textContent='⏺ Enregistrement en cours... 58 secondes';
+        const vs=cv.captureStream(FPS);
+        if(audioDest)audioDest.stream.getAudioTracks().forEach(t=>vs.addTrack(t));
+        const mt=MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')?'video/webm;codecs=vp9,opus':
+                  MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')?'video/webm;codecs=vp8,opus':'video/webm';
+        recorder=new MediaRecorder(vs,{mimeType:mt,videoBitsPerSecond:3000000});
+        recorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+        recorder.onstop=()=>{
+            const blob=new Blob(chunks,{type:'video/webm'});const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');a.href=url;a.download='Plannie_Business_Pub.webm';
+            document.body.appendChild(a);a.click();a.remove();
+            setTimeout(()=>URL.revokeObjectURL(url),5000);
+            st.textContent='✅ Vidéo téléchargée ! (Plannie_Business_Pub.webm)';
+        };
+        recorder.start();
+    }else{st.textContent='▶ Lecture en cours...'}
+    startBg();scheduleSounds();
+    const t0=performance.now();
+    function loop(now){
+        const elapsed=now-t0;renderFrame(Math.min(elapsed,DURATION));
+        if(elapsed<DURATION+500){requestAnimationFrame(loop)}
+        else{
+            if(recorder&&recorder.state==='recording')recorder.stop();
+            isRunning=false;btnP.disabled=false;btnD.disabled=false;
+            if(!download)st.textContent='✅ Lecture terminée';
+        }
+    }
+    requestAnimationFrame(loop);
+}
+renderFrame(0);
+</script>
+</body>
+</html>
