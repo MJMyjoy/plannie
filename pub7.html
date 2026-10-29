@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plannie Business – Pub 3 : Soumettez vos articles</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+    background:#000;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;
+    overflow:hidden;gap:16px;
+}
+canvas{border-radius:16px;box-shadow:0 0 60px rgba(76,175,80,.25);max-width:95vw;max-height:80vh}
+@media(max-width:400px){canvas{border-radius:0}}
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.btn{padding:14px 28px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;display:flex;align-items:center;gap:8px}
+.btn-play{background:#2E7D32;color:#fff}.btn-play:hover{background:#388E3C}
+.btn-dl{background:#fff;color:#2E7D32}.btn-dl:hover{background:#E8F5E9}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.status{color:rgba(255,255,255,.5);font-size:13px;min-height:18px}
+</style>
+</head>
+<body>
+<canvas id="c" width="360" height="640"></canvas>
+<div class="controls">
+    <button class="btn btn-play" id="btnPlay" onclick="runAd(false)">▶ Lancer la pub</button>
+    <button class="btn btn-dl" id="btnDl" onclick="runAd(true)">📥 Télécharger la vidéo</button>
+</div>
+<div class="status" id="status"></div>
+
+<script>
+// ============================================================
+//  Plannie Business — Pub 3 : « Publie, Gagne en Visibilité »
+//  Accent : formulaire fonctionnel, pub gratuite mutuelle,
+//           Amazon local, commentaires & étoiles
+// ============================================================
+const W=360, H=640, FPS=30, DURATION=62000;
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+
+// Colors
+const G900='#1B5E20', G800='#2E7D32', G700='#388E3C', G600='#43A047', G500='#4CAF50',
+      G400='#66BB6A', G300='#81C784', G200='#A5D6A7', G100='#C8E6C9', G50='#E8F5E9';
+const GOLD='#F9A825', ORANGE='#EF6C00', BLUE='#1565C0', TEAL='#00897B';
+const SITE_URL='plannie-business.onrender.com';
+const PHONE='+243 979 508 196';
+
+// ============ IMAGE LOADING ============
+const imgFiles={
+    logo:      'img/plannie_logo_1792797585289.jpg',
+    cover:     'img/plannie_cover_1792799845450.jpg',
+    happy:     'img/plannie_happy_result_1792799871450.jpg',
+    problem:   'img/plannie_market_problem_1792799857414.jpg',
+    chapatte:  'exp/chapatte_500_chez_colodouce.jpg',
+    chapatte2: 'exp/chapatte_500_chez_colodouce2.jpg',
+    gauffres:  'exp/gauffres_3pcs_a_1000_chez_colodouce.jpg',
+    riz:       'exp/Riz+Sauce+Viande_4000_chez_Bondo_Food.jpg',
+    tissage:   'exp/tissage_et_closur_40000FC_chez_chriska_business.jpg',
+    veste:     'exp/veste_95_dollards_chez_tshoku_business.jpg',
+};
+const imgs={};
+let imgsLoaded=0, imgsTotal=Object.keys(imgFiles).length;
+Object.entries(imgFiles).forEach(([k,src])=>{
+    const im=new Image();
+    im.onload=()=>{imgsLoaded++};
+    im.onerror=()=>{imgsLoaded++};
+    im.src=src; imgs[k]=im;
+});
+
+// ============ HELPERS ============
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function easeOut(t){return 1-Math.pow(1-t,3)}
+function easeInOut(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2}
+function fadeUp(t,delay,dur=500){const p=clamp((t-delay)/dur,0,1);return{a:easeOut(p),y:25*(1-easeOut(p))}}
+function fadeIn(t,delay,dur=500){return{a:easeOut(clamp((t-delay)/dur,0,1))}}
+function slideL(t,delay,dur=500){const p=clamp((t-delay)/dur,0,1);return{a:easeOut(p),x:-40*(1-easeOut(p))}}
+function slideR(t,delay,dur=500){const p=clamp((t-delay)/dur,0,1);return{a:easeOut(p),x:40*(1-easeOut(p))}}
+function popScale(t,delay,dur=400){const p=clamp((t-delay)/dur,0,1);const s=p<.7?p/.7*1.15:1.15-(p-.7)/.3*.15;return{a:Math.min(p*2,1),s}}
+
+function roundRect(x,y,w,h,r,fill,stroke){
+    ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+    if(fill){ctx.fillStyle=fill;ctx.fill()}
+    if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke();ctx.lineWidth=1}
+}
+
+function drawLogo(cx,cy,size,alpha=1){
+    ctx.save();ctx.globalAlpha=alpha;ctx.translate(cx,cy);
+    const s=size/80;ctx.scale(s,s);
+    ctx.fillStyle='rgba(255,255,255,0.9)';
+    ctx.beginPath();ctx.moveTo(0,18);ctx.bezierCurveTo(0,-2,14,-22,30,-32);
+    ctx.bezierCurveTo(18,-20,10,-4,8,16);ctx.closePath();ctx.fill();
+    ctx.fillStyle='rgba(200,230,201,0.8)';
+    ctx.beginPath();ctx.moveTo(0,18);ctx.bezierCurveTo(0,-2,-14,-22,-30,-32);
+    ctx.bezierCurveTo(-18,-20,-10,-4,-8,16);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#fff';roundRect(-2,16,4,16,2,'#fff');
+    ctx.restore();
+}
+
+function drawProgress(t){
+    ctx.fillStyle='rgba(255,255,255,0.08)';ctx.fillRect(0,H-4,W,4);
+    const grd=ctx.createLinearGradient(0,0,W*(t/DURATION),0);
+    grd.addColorStop(0,G400);grd.addColorStop(1,'#fff');
+    ctx.fillStyle=grd;ctx.fillRect(0,H-4,W*(t/DURATION),4);
+}
+
+function drawBadge(x,y,text,bg,fg='#fff'){
+    ctx.font='700 11px "Segoe UI",sans-serif';
+    const tw=ctx.measureText(text).width;
+    roundRect(x-tw/2-12,y-11,tw+24,24,12,bg);
+    ctx.fillStyle=fg;ctx.textAlign='center';
+    ctx.fillText(text,x,y+4);
+}
+
+function drawParticles(t,count=15,color=G400){
+    for(let i=0;i<count;i++){
+        const px=(Math.sin(t/800+i*2.1)*0.4+0.5)*W;
+        const py=(Math.cos(t/600+i*1.7)*0.4+0.5)*H;
+        const sz=2+Math.sin(t/400+i)*2;
+        ctx.globalAlpha=0.15+Math.sin(t/500+i)*0.1;
+        ctx.beginPath();ctx.arc(px,py,sz,0,Math.PI*2);
+        ctx.fillStyle=color;ctx.fill();
+    }
+    ctx.globalAlpha=1;
+}
+
+function drawImgCover(img,x,y,w,h,alpha,zoom=1,panX=0,panY=0){
+    if(!img||!img.complete||!img.naturalWidth)return;
+    ctx.save();ctx.globalAlpha=alpha;
+    ctx.beginPath();roundRect(x,y,w,h,0);ctx.clip();
+    const iAR=img.naturalWidth/img.naturalHeight;
+    const cAR=w/h;
+    let sw,sh;
+    if(iAR>cAR){sh=h*zoom;sw=sh*iAR}else{sw=w*zoom;sh=sw/iAR}
+    ctx.drawImage(img,x+(w-sw)/2+panX,y+(h-sh)/2+panY,sw,sh);
+    ctx.restore();
+}
+
+function drawVignette(intensity=0.6){
+    const grd=ctx.createRadialGradient(W/2,H/2,W*0.3,W/2,H/2,W*0.9);
+    grd.addColorStop(0,'rgba(0,0,0,0)');
+    grd.addColorStop(1,`rgba(0,0,0,${intensity})`);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+}
+
+function wrapText(text,x,y,maxW,lineH){
+    const words=text.split(' ');let line='';
+    for(const w of words){
+        const test=line+w+' ';
+        if(ctx.measureText(test).width>maxW&&line!==''){
+            ctx.fillText(line.trim(),x,y);y+=lineH;line=w+' ';
+        }else{line=test}
+    }
+    ctx.fillText(line.trim(),x,y);
+    return y+lineH;
+}
+
+function drawProductCard(img,x,y,w,h,name,price,seller,alpha){
+    if(alpha<=0)return;
+    ctx.save();ctx.globalAlpha=alpha;
+    roundRect(x,y,w,h,14,'rgba(255,255,255,0.95)');
+    if(img&&img.complete&&img.naturalWidth){
+        ctx.save();
+        ctx.beginPath();roundRect(x+6,y+6,w-12,(h*0.55),10);ctx.clip();
+        const iAR=img.naturalWidth/img.naturalHeight;
+        const cAR=(w-12)/((h*0.55));
+        let sw2,sh2;
+        if(iAR>cAR){sh2=h*0.55;sw2=sh2*iAR}else{sw2=w-12;sh2=sw2/iAR}
+        ctx.drawImage(img,x+6+((w-12)-sw2)/2,y+6+((h*0.55)-sh2)/2,sw2,sh2);
+        ctx.restore();
+    }
+    const ty=y+h*0.55+22;
+    ctx.fillStyle='#1A1A1A';ctx.font='700 12px "Segoe UI",sans-serif';ctx.textAlign='left';
+    ctx.fillText(name,x+10,ty);
+    ctx.fillStyle=G800;ctx.font='800 14px "Segoe UI",sans-serif';
+    ctx.fillText(price,x+10,ty+18);
+    ctx.fillStyle='#888';ctx.font='400 10px "Segoe UI",sans-serif';
+    ctx.fillText('📍 '+seller,x+10,ty+34);
+    ctx.restore();
+}
+
+function drawStars(x,y,count,size,alpha){
+    ctx.save();ctx.globalAlpha=alpha;
+    ctx.font=size+'px sans-serif';ctx.textAlign='left';
+    let text='';
+    for(let i=0;i<5;i++) text+=(i<count)?'⭐':'☆';
+    ctx.fillText(text,x,y);
+    ctx.restore();
+}
+
+// ============================================================
+//  SCENES
+// ============================================================
+
+// S1: HOOK — « Ton commerce mérite mieux » (0 - 5500)
+function drawS1(t){
+    // Cover image with slow zoom
+    const zoom=1+t/60000;
+    drawImgCover(imgs.cover,0,0,W,H,1,zoom,0,-t*0.002);
+
+    const grd=ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,'rgba(0,0,0,0.3)');
+    grd.addColorStop(0.5,'rgba(0,0,0,0.15)');
+    grd.addColorStop(1,'rgba(0,0,0,0.88)');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawVignette(0.35);
+
+    // Logo small top
+    const flogo=fadeIn(t,200,400);
+    if(flogo.a>0&&imgs.logo.complete){
+        ctx.save();ctx.globalAlpha=flogo.a*0.8;
+        const sz=40;
+        ctx.beginPath();ctx.arc(W/2,40,sz/2,0,Math.PI*2);ctx.clip();
+        ctx.drawImage(imgs.logo,W/2-sz/2,40-sz/2,sz,sz);
+        ctx.restore();
+    }
+
+    const f1=fadeUp(t,500,700);
+    ctx.globalAlpha=f1.a;ctx.fillStyle='#fff';
+    ctx.font='700 26px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.shadowColor='rgba(0,0,0,0.6)';ctx.shadowBlur=15;
+    ctx.fillText('Tu as des articles',W/2,H*0.38+f1.y);
+    ctx.fillText('à vendre ? 🛍️',W/2,H*0.38+38+f1.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+
+    const f2=fadeUp(t,2200,700);
+    ctx.globalAlpha=f2.a;ctx.fillStyle=GOLD;
+    ctx.font='800 22px "Segoe UI",sans-serif';
+    ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=10;
+    ctx.fillText('Publie-les',W/2,H*0.58+f2.y);
+    ctx.fillText('GRATUITEMENT',W/2,H*0.58+34+f2.y);
+    ctx.fillText('sur Plannie Business ! 🚀',W/2,H*0.58+68+f2.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+
+    const fa=fadeUp(t,4400,400);
+    if(fa.a>0){
+        ctx.globalAlpha=fa.a*(0.4+0.6*Math.abs(Math.sin(t/350)));
+        ctx.fillStyle='#fff';ctx.font='18px sans-serif';ctx.textAlign='center';
+        ctx.fillText('↓',W/2,H-30);
+    }
+    ctx.globalAlpha=1;
+}
+
+// S2: AMAZON LOCAL — « Le Amazon de ta ville » (5500 - 12000)
+function drawS2(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,'#0D3B14');grd.addColorStop(1,G900);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawParticles(t,18,G300);
+
+    // Flash
+    if(t<300){
+        ctx.fillStyle=`rgba(255,255,255,${0.4*(1-t/300)})`;
+        ctx.fillRect(0,0,W,H);
+    }
+
+    const ft=fadeUp(t,200,500);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 19px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('🏪 Un Amazon Local',W/2,45+ft.y);
+    ctx.fillStyle=G200;ctx.font='italic 13px "Segoe UI",sans-serif';
+    ctx.fillText('Des articles proches de ton quotidien',W/2,68+ft.y);
+    ctx.globalAlpha=1;
+
+    // 5 product cards — showcasing variety including veste
+    const products=[
+        {img:imgs.veste,    name:'Veste élégante',     price:'95 $',       seller:'Tshoku Business',    d:600},
+        {img:imgs.chapatte2,name:'Chapatte maison',    price:'500 FC',     seller:'Colo Douce',         d:1000},
+        {img:imgs.riz,      name:'Riz+Sauce+Viande',   price:'4.000 FC',   seller:'Bondo Food',         d:1500},
+        {img:imgs.gauffres, name:'Gauffres (3 pcs)',    price:'1.000 FC',   seller:'Colo Douce',         d:2000},
+        {img:imgs.tissage,  name:'Tissage & Closure',   price:'40.000 FC',  seller:'Chriska Business',   d:2500},
+    ];
+
+    // First row: 2 cards + veste featured large
+    const cardW=150, cardH=185, gap=14, startX=(W-cardW*2-gap)/2;
+
+    // Featured big card (veste) — centered at top
+    const fv=fadeUp(t,600,700);
+    if(fv.a>0){
+        const bigW=200, bigH=240;
+        const bx=(W-bigW)/2, by=90+fv.y;
+        ctx.save();ctx.globalAlpha=fv.a;
+        ctx.shadowColor='rgba(76,175,80,0.3)';ctx.shadowBlur=20;ctx.shadowOffsetY=6;
+        roundRect(bx,by,bigW,bigH,16,'rgba(255,255,255,0.97)');
+        ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetY=0;
+        if(imgs.veste&&imgs.veste.complete&&imgs.veste.naturalWidth){
+            ctx.save();
+            ctx.beginPath();roundRect(bx+8,by+8,bigW-16,bigH*0.6,12);ctx.clip();
+            const iAR=imgs.veste.naturalWidth/imgs.veste.naturalHeight;
+            const cAR=(bigW-16)/(bigH*0.6);
+            let sw,sh;
+            if(iAR>cAR){sh=bigH*0.6;sw=sh*iAR}else{sw=bigW-16;sh=sw/iAR}
+            ctx.drawImage(imgs.veste,bx+8+((bigW-16)-sw)/2,by+8+((bigH*0.6)-sh)/2,sw,sh);
+            ctx.restore();
+        }
+        const ty=by+bigH*0.6+26;
+        ctx.fillStyle='#1A1A1A';ctx.font='700 15px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText('Veste élégante',bx+14,ty);
+        ctx.fillStyle=G800;ctx.font='800 17px "Segoe UI",sans-serif';
+        ctx.fillText('95 $',bx+14,ty+22);
+        ctx.fillStyle='#888';ctx.font='400 11px "Segoe UI",sans-serif';
+        ctx.fillText('📍 Tshoku Business',bx+14,ty+40);
+        // Star rating
+        drawStars(bx+bigW-78,ty+38,4,10,fv.a);
+        // Badge NEW
+        drawBadge(bx+bigW-30,by+20,'NEW',ORANGE);
+        ctx.restore();
+    }
+
+    // 4 smaller cards — bottom row (2x2)
+    products.slice(1).forEach((p,i)=>{
+        const sl=fadeUp(t,p.d,600);
+        if(sl.a<=0)return;
+        const col=i%2, row=Math.floor(i/2);
+        const cx=startX+col*(cardW+gap);
+        const cy=350+row*(cardH+gap)+sl.y;
+        ctx.save();ctx.globalAlpha=sl.a*0.12;
+        ctx.shadowColor='rgba(0,0,0,0.12)';ctx.shadowBlur=10;ctx.shadowOffsetY=3;
+        roundRect(cx,cy,cardW,cardH,14,'#fff');
+        ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetY=0;
+        ctx.restore();
+        drawProductCard(p.img,cx,cy,cardW,cardH,p.name,p.price,p.seller,sl.a);
+    });
+
+    // Bottom message
+    const fb=fadeUp(t,4500,500);
+    if(fb.a>0){
+        ctx.globalAlpha=fb.a;
+        ctx.fillStyle=GOLD;ctx.font='700 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Nourriture • Mode • Beauté • Tech •  Services...',W/2,H-20+fb.y);
+    }
+    ctx.globalAlpha=1;
+}
+
+// S3: LE FORMULAIRE — « C'est simple, ça marche ! » (12000 - 19000)
+function drawS3(t){
+    ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('📝 Le formulaire est prêt !',W/2,45+ft.y);
+    ctx.fillStyle=G300;ctx.font='400 13px "Segoe UI",sans-serif';
+    ctx.fillText('Soumettez vos articles n\'importe quand',W/2,68+ft.y);
+    ctx.globalAlpha=1;
+
+    // Simulated form UI
+    const formBg=fadeUp(t,400,500);
+    if(formBg.a>0){
+        ctx.globalAlpha=formBg.a;
+        // Phone mockup frame
+        roundRect(35,88+formBg.y,W-70,H-145,20,'rgba(255,255,255,0.04)','rgba(255,255,255,0.12)');
+
+        // Status bar
+        roundRect(55,100+formBg.y,W-110,24,8,'rgba(76,175,80,0.3)');
+        ctx.fillStyle=G400;ctx.font='700 11px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('🌿 plannie-business.onrender.com/soumettre/',W/2,116+formBg.y);
+    }
+
+    // Form fields animated
+    const fields=[
+        {label:'📸 Image de l\'article',placeholder:'[ photo sélectionnée ✅ ]',color:G500,d:800},
+        {label:'📦 Nom de l\'article',placeholder:'Veste Safari Grise',color:BLUE,d:1200},
+        {label:'💬 Description',placeholder:'Veste élégante style Safari...',color:TEAL,d:1600},
+        {label:'💰 Prix à afficher',placeholder:'95 $',color:GOLD,d:2000},
+        {label:'📍 Ville',placeholder:'Lubumbashi',color:ORANGE,d:2400},
+        {label:'📱 Numéro WhatsApp',placeholder:'+243 97x xxx xxxx',color:G600,d:2800},
+        {label:'🚚 Lieu de livraison',placeholder:'Quartier Gambela, av. Lac...',color:'#7B1FA2',d:3200},
+    ];
+
+    fields.forEach((f,i)=>{
+        const sl=slideL(t,f.d,500);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const fy=135+i*62+formBg.y;
+        // Field container
+        roundRect(52+sl.x,fy,W-104,50,10,'rgba(255,255,255,0.06)');
+        // Label
+        ctx.fillStyle='rgba(255,255,255,0.5)';ctx.font='500 10px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText(f.label,62+sl.x,fy+15);
+        // Input value
+        ctx.fillStyle='#fff';ctx.font='500 13px "Segoe UI",sans-serif';
+        ctx.fillText(f.placeholder,62+sl.x,fy+35);
+        // Color accent bar
+        ctx.fillStyle=f.color;ctx.fillRect(52+sl.x,fy+42,W-104,2);
+    });
+
+    // Submit button animation
+    const fbtn=fadeUp(t,4200,500);
+    if(fbtn.a>0){
+        ctx.globalAlpha=fbtn.a;
+        const pulse=0.7+0.3*Math.sin(t/250);
+        const btnY=575+formBg.y+fbtn.y;
+        ctx.shadowColor=`rgba(76,175,80,${0.3*pulse})`;ctx.shadowBlur=15;
+        roundRect(55,btnY,W-110,44,22,G800);
+        ctx.shadowColor='transparent';ctx.shadowBlur=0;
+        ctx.fillStyle='#fff';ctx.font='700 15px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('✅ Soumettre mon article',W/2,btnY+28);
+    }
+
+    // Success popup
+    const fok=fadeUp(t,5400,500);
+    if(fok.a>0){
+        ctx.globalAlpha=fok.a*0.95;
+        // Dim background
+        ctx.fillStyle='rgba(0,0,0,0.6)';ctx.fillRect(0,0,W,H);
+        // Modal
+        const ps=popScale(t,5400,500);
+        ctx.save();ctx.translate(W/2,H/2);ctx.scale(ps.s||1,ps.s||1);ctx.translate(-W/2,-H/2);
+        roundRect(40,H/2-90,W-80,180,20,'rgba(255,255,255,0.98)');
+        ctx.fillStyle='#333';ctx.font='40px sans-serif';ctx.textAlign='center';
+        ctx.fillText('🎉',W/2,H/2-40);
+        ctx.fillStyle='#1A1A1A';ctx.font='700 16px "Segoe UI",sans-serif';
+        ctx.fillText('Article soumis !',W/2,H/2);
+        ctx.fillStyle='#666';ctx.font='400 12px "Segoe UI",sans-serif';
+        ctx.fillText('Votre article sera publié dans',W/2,H/2+25);
+        ctx.fillText('moins de 6 heures. 🚀',W/2,H/2+42);
+        roundRect(W/2-50,H/2+55,100,34,17,G800);
+        ctx.fillStyle='#fff';ctx.font='700 13px "Segoe UI",sans-serif';
+        ctx.fillText('Super !',W/2,H/2+77);
+        ctx.restore();
+    }
+    ctx.globalAlpha=1;
+}
+
+// S4: PUB GRATUITE MUTUELLE — « Publie = pub gratuite » (19000 - 27000)
+function drawS4(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,G900);grd.addColorStop(1,'#0D3B14');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawParticles(t,20,G400);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('🎁 Publie = Pub GRATUITE',W/2,50+ft.y);
+    ctx.globalAlpha=1;
+
+    // Explanation block 1: Havila fait la pub
+    const f1=fadeUp(t,700,600);
+    if(f1.a>0){
+        ctx.globalAlpha=f1.a;
+        roundRect(20,85+f1.y,W-40,120,14,'rgba(249,168,37,0.08)','rgba(249,168,37,0.25)');
+        ctx.fillStyle=GOLD;ctx.font='32px sans-serif';ctx.textAlign='center';
+        ctx.fillText('📢',55,135+f1.y);
+        ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';
+        ctx.fillText('Havila fait la pub du site',75,118+f1.y);
+        ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+        wrapText('Quand nous faisons la publicité de Plannie Business, TOUS les articles deviennent visibles — y compris les tiens ! 🚀',75,140+f1.y,W-115,17);
+    }
+
+    // Explanation block 2: Les autres partagent
+    const f2=fadeUp(t,2000,600);
+    if(f2.a>0){
+        ctx.globalAlpha=f2.a;
+        roundRect(20,225+f2.y,W-40,120,14,'rgba(21,101,192,0.08)','rgba(21,101,192,0.25)');
+        ctx.fillStyle=BLUE;ctx.font='32px sans-serif';ctx.textAlign='center';
+        ctx.fillText('🔗',55,275+f2.y);
+        ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';
+        ctx.fillText('Les autres partagent le lien',75,258+f2.y);
+        ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+        wrapText('Chaque vendeur partage le site pour afficher ses articles. Résultat ? TES articles aussi gagnent des vues gratuitement ! 📈',75,280+f2.y,W-115,17);
+    }
+
+    // Visual chain effect
+    const f3=fadeUp(t,3800,600);
+    if(f3.a>0){
+        ctx.globalAlpha=f3.a;
+        roundRect(20,365+f3.y,W-40,120,14,'rgba(76,175,80,0.08)','rgba(76,175,80,0.25)');
+        ctx.fillStyle=G500;ctx.font='32px sans-serif';ctx.textAlign='center';
+        ctx.fillText('🌐',55,415+f3.y);
+        ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';
+        ctx.fillText('Effet boule de neige !',75,398+f3.y);
+        ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+        wrapText('Plus il y a de vendeurs, plus le site est partagé, plus TOUT LE MONDE gagne en visibilité. C\'est gagnant-gagnant ! 🤝',75,420+f3.y,W-115,17);
+    }
+
+    // Equation
+    const feq=fadeUp(t,5800,500);
+    if(feq.a>0){
+        ctx.globalAlpha=feq.a;
+        const pulse=0.8+0.2*Math.sin(t/300);
+        ctx.globalAlpha=feq.a*pulse;
+        roundRect(25,510+feq.y,W-50,55,16,GOLD);
+        ctx.fillStyle='#333';ctx.font='800 16px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('1 article publié = Pub GRATUITE 24/7',W/2,543+feq.y);
+    }
+
+    // Reminder
+    const fr=fadeUp(t,6800,400);
+    if(fr.a>0){
+        ctx.globalAlpha=fr.a*0.6;ctx.fillStyle='#fff';
+        ctx.font='400 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Sans payer un seul franc. Pour toujours.',W/2,590+fr.y);
+    }
+    ctx.globalAlpha=1;
+}
+
+// S5: COMMENTAIRES & ÉTOILES — « Dis ce que tu en penses » (27000 - 34000)
+function drawS5(t){
+    ctx.fillStyle='#0a0a0a';ctx.fillRect(0,0,W,H);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('⭐ Donne ton avis !',W/2,48+ft.y);
+    ctx.fillStyle='rgba(255,255,255,0.5)';ctx.font='400 13px "Segoe UI",sans-serif';
+    ctx.fillText('Commente et note chaque article',W/2,72+ft.y);
+    ctx.globalAlpha=1;
+
+    // Show a product card with reviews
+    const fc=fadeUp(t,500,600);
+    if(fc.a>0){
+        ctx.globalAlpha=fc.a;
+        // Product mini-card
+        roundRect(30,95+fc.y,W-60,110,14,'rgba(255,255,255,0.06)','rgba(255,255,255,0.1)');
+        if(imgs.chapatte&&imgs.chapatte.complete){
+            ctx.save();
+            ctx.beginPath();roundRect(40,103+fc.y,80,80,10);ctx.clip();
+            const iAR=imgs.chapatte.naturalWidth/imgs.chapatte.naturalHeight;
+            let sw,sh;if(iAR>1){sh=80;sw=sh*iAR}else{sw=80;sh=sw/iAR}
+            ctx.drawImage(imgs.chapatte,40+(80-sw)/2,103+fc.y+(80-sh)/2,sw,sh);
+            ctx.restore();
+        }
+        ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText('Chapatte',135,120+fc.y);
+        ctx.fillStyle=G400;ctx.font='800 15px "Segoe UI",sans-serif';
+        ctx.fillText('500 FC',135,140+fc.y);
+        ctx.fillStyle=G300;ctx.font='400 11px "Segoe UI",sans-serif';
+        ctx.fillText('📍 Colo Douce, Lubumbashi',135,158+fc.y);
+        drawStars(135,175+fc.y,5,11,fc.a);
+        ctx.fillStyle='rgba(255,255,255,0.4)';ctx.font='400 10px "Segoe UI",sans-serif';
+        ctx.fillText('4.8 (23 avis)',200,175+fc.y);
+    }
+
+    // Comments section
+    const comments=[
+        {pseudo:'Merveille',stars:5,text:'"Très bon chapatte ! Croustillant et livré chaud 🔥"',d:1600},
+        {pseudo:'Patrick',stars:4,text:'"Bon rapport qualité-prix. La livraison est rapide."',d:2400},
+        {pseudo:'Grâce',stars:5,text:'"J\'adore ! Je commande chaque semaine maintenant 😍"',d:3200},
+    ];
+
+    comments.forEach((c,i)=>{
+        const sl=slideR(t,c.d,500);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const cy=225+i*110+sl.x*0.5;
+        roundRect(25,cy,W-50,95,12,'rgba(255,255,255,0.04)','rgba(255,255,255,0.08)');
+        // Avatar
+        ctx.beginPath();ctx.arc(52,cy+28,14,0,Math.PI*2);
+        ctx.fillStyle='rgba(255,255,255,0.1)';ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='16px sans-serif';ctx.textAlign='center';
+        ctx.fillText('👤',52,cy+34);
+        // Name + stars
+        ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='700 13px "Segoe UI",sans-serif';
+        ctx.fillText(c.pseudo,75,cy+24);
+        drawStars(75,cy+42,c.stars,10,sl.a);
+        // Text
+        ctx.fillStyle='rgba(255,255,255,0.7)';ctx.font='italic 11px "Segoe UI",sans-serif';ctx.textAlign='left';
+        wrapText(c.text,42,cy+60,W-90,15);
+    });
+
+    // CTA
+    const fb=fadeUp(t,5000,500);
+    if(fb.a>0){
+        ctx.globalAlpha=fb.a;
+        roundRect(30,H-80+fb.y,W-60,50,14,G800);
+        ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('💬 Laisse ton avis et tes ⭐ !',W/2,H-50+fb.y);
+    }
+
+    // Sub text
+    const fs=fadeUp(t,5800,400);
+    if(fs.a>0){
+        ctx.globalAlpha=fs.a*0.5;ctx.fillStyle='#fff';
+        ctx.font='400 11px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Aide les autres à choisir les meilleurs articles',W/2,H-18+fs.y);
+    }
+    ctx.globalAlpha=1;
+}
+
+// S6: FRIENDLY & QUOTIDIEN — pas Amazon US, Amazon LOCAL (34000 - 40000)
+function drawS6(t){
+    // Happy background
+    const zoom=1.02+t/120000;
+    drawImgCover(imgs.happy,0,0,W,H,1,zoom,0,0);
+    const grd=ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,'rgba(27,94,32,0.9)');
+    grd.addColorStop(0.5,'rgba(27,94,32,0.7)');
+    grd.addColorStop(1,'rgba(0,0,0,0.92)');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawVignette(0.3);
+
+    const ft=fadeUp(t,200,500);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=10;
+    ctx.fillText('🏠 Plus qu\'un site...',W/2,55+ft.y);
+    ctx.fillText('Un voisin numérique !',W/2,82+ft.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+    ctx.globalAlpha=1;
+
+    const points=[
+        {icon:'🛒',title:'Comme Amazon',desc:'mais pour TA ville, avec des articles proches de toi',color:GOLD,d:800},
+        {icon:'🤝',title:'Plus friendly',desc:'Des vendeurs que tu connais, des produits du quotidien',color:G400,d:1600},
+        {icon:'📸',title:'Simple comme un statut',desc:'Mais visible par le MONDE ENTIER, sans partager ton numéro',color:BLUE,d:2400},
+        {icon:'💎',title:'Infos complètes',desc:'Photo, prix, description, WhatsApp, livraison — tout est là',color:TEAL,d:3200},
+        {icon:'🕐',title:'Ouvert 24h/24',desc:'Ton article reste visible jour et nuit, même quand tu dors !',color:ORANGE,d:4000},
+    ];
+
+    points.forEach((p,i)=>{
+        const sl=fadeUp(t,p.d,500);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const py=110+i*96+sl.y;
+        roundRect(20,py,W-40,80,12,'rgba(255,255,255,0.06)','rgba(255,255,255,0.1)');
+        ctx.fillStyle=p.color;ctx.fillRect(20,py+15,4,50);
+        ctx.font='28px sans-serif';ctx.textAlign='center';
+        ctx.fillText(p.icon,50,py+42);
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='700 14px "Segoe UI",sans-serif';
+        ctx.fillText(p.title,72,py+30);
+        ctx.fillStyle=G200;ctx.font='400 11px "Segoe UI",sans-serif';
+        ctx.fillText(p.desc,72,py+50);
+    });
+
+    ctx.globalAlpha=1;
+}
+
+// S7: LES 3 ÉTAPES — rappel rapide (40000 - 46000)
+function drawS7(t){
+    ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('🚀 3 étapes et c\'est tout !',W/2,50+ft.y);
+    ctx.globalAlpha=1;
+
+    const steps=[
+        {
+            num:'1',title:'Remplis le formulaire',
+            desc:'Photo, nom, prix, description, ton WhatsApp, lieux de livraison. Le formulaire est super simple !',
+            icon:'📝',color:G500,d:600
+        },
+        {
+            num:'2',title:'Havila publie ton article',
+            desc:'Notre équipe vérifie rapidement et publie en moins de 6 heures. Tu es contacté par WhatsApp !',
+            icon:'✅',color:GOLD,d:2000
+        },
+        {
+            num:'3',title:'Partage et profite !',
+            desc:'Partage le lien du site. Tous les vendeurs font pareil → tes articles sont vus par des milliers de gens !',
+            icon:'🔗',color:ORANGE,d:3400
+        },
+    ];
+
+    steps.forEach((s,i)=>{
+        const sl=fadeUp(t,s.d,700);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        const sy=90+i*172+sl.y;
+
+        roundRect(20,sy,W-40,155,16,'rgba(255,255,255,0.05)','rgba(255,255,255,0.1)');
+
+        // Number circle
+        ctx.beginPath();ctx.arc(55,sy+40,22,0,Math.PI*2);
+        ctx.fillStyle=s.color;ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='800 22px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText(s.num,55,sy+48);
+
+        // Icon
+        ctx.font='36px sans-serif';ctx.fillText(s.icon,W-52,sy+44);
+
+        // Title
+        ctx.textAlign='left';ctx.fillStyle='#fff';
+        ctx.font='700 16px "Segoe UI",sans-serif';
+        ctx.fillText(s.title,90,sy+35);
+
+        // Description
+        ctx.fillStyle='rgba(255,255,255,0.6)';ctx.font='400 12px "Segoe UI",sans-serif';
+        wrapText(s.desc,38,sy+70,W-80,17);
+    });
+
+    ctx.globalAlpha=1;
+}
+
+// S8: CTA FINAL — « Publie maintenant ! » (46000 - 55000)
+function drawS8(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,G800);grd.addColorStop(1,G900);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+
+    // Glow particles
+    for(let i=0;i<14;i++){
+        const px=(Math.sin(t/900+i*2.5)*0.3+0.5)*W;
+        const py=(Math.cos(t/700+i*1.9)*0.3+0.5)*H;
+        ctx.globalAlpha=0.06+0.04*Math.sin(t/400+i);
+        ctx.beginPath();ctx.arc(px,py,3+Math.sin(t/500+i)*2,0,Math.PI*2);
+        ctx.fillStyle='#fff';ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Logo
+    const fl=fadeUp(t,100,500);
+    if(fl.a>0&&imgs.logo.complete){
+        ctx.save();ctx.globalAlpha=fl.a;
+        const sz=80;
+        ctx.beginPath();ctx.arc(W/2,80,sz/2+3,0,Math.PI*2);
+        ctx.fillStyle='rgba(255,255,255,0.12)';ctx.fill();
+        ctx.beginPath();ctx.arc(W/2,80,sz/2,0,Math.PI*2);ctx.clip();
+        ctx.drawImage(imgs.logo,W/2-sz/2,80-sz/2,sz,sz);
+        ctx.restore();
+    }
+
+    // Name
+    const fn=fadeUp(t,300,500);
+    ctx.globalAlpha=fn.a;ctx.fillStyle='#fff';
+    ctx.font='800 42px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Plannie',W/2,155+fn.y);
+
+    const fb=popScale(t,500,400);
+    if(fb.a>0){ctx.globalAlpha=fb.a;drawBadge(W/2,180,'BUSINESS',GOLD,'#333')}
+
+    // Slogan
+    const fs=fadeUp(t,800,400);
+    ctx.globalAlpha=fs.a;ctx.fillStyle=G200;
+    ctx.font='italic 15px "Segoe UI",sans-serif';
+    ctx.fillText('Ton Amazon Local 🏪',W/2,210+fs.y);
+    ctx.globalAlpha=1;
+
+    // CTA 1: Submit button
+    const fcta=fadeUp(t,1400,400);
+    if(fcta.a>0){
+        ctx.globalAlpha=fcta.a;
+        const pulse=0.5+0.5*Math.sin(t/200);
+        const bw=280,bh=50,bx=(W-bw)/2,by=245+fcta.y;
+        ctx.shadowColor=`rgba(255,255,255,${0.15+0.12*pulse})`;
+        ctx.shadowBlur=18+10*pulse;
+        roundRect(bx,by,bw,bh,25,'#fff');
+        ctx.shadowColor='transparent';ctx.shadowBlur=0;
+        ctx.fillStyle=G800;ctx.font='700 15px "Segoe UI",sans-serif';
+        ctx.fillText('📝 Soumets ton article MAINTENANT',W/2,by+32);
+    }
+
+    // URL
+    const fu=fadeUp(t,2000,400);
+    ctx.globalAlpha=fu.a;ctx.fillStyle=GOLD;
+    ctx.font='700 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.shadowColor='rgba(249,168,37,0.3)';ctx.shadowBlur=8;
+    ctx.fillText('🔗 '+SITE_URL,W/2,325+fu.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+    ctx.globalAlpha=1;
+
+    // Free reminder
+    const ff=fadeUp(t,2400,400);
+    ctx.globalAlpha=ff.a*0.5;ctx.fillStyle='#fff';
+    ctx.font='400 12px "Segoe UI",sans-serif';
+    ctx.fillText('Gratuit • Pas d\'inscription • N\'importe quand',W/2,350+ff.y);
+    ctx.globalAlpha=1;
+
+    // Divider
+    const fd=fadeIn(t,2800,300);
+    ctx.globalAlpha=fd.a*0.2;ctx.fillStyle='#fff';
+    ctx.fillRect(W*0.2,378,W*0.6,1);
+    ctx.globalAlpha=1;
+
+    // Benefits recap
+    const benefits=[
+        '📢 Pub gratuite quand Havila partage le site',
+        '🔗 Pub gratuite quand d\'autres vendeurs partagent',
+        '⭐ Les clients laissent des avis et des étoiles',
+        '📱 Simple comme un statut WhatsApp',
+    ];
+    benefits.forEach((b,i)=>{
+        const sl=slideL(t,3200+i*400,400);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;
+        ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText(b,W/2+sl.x,400+i*26);
+    });
+
+    // Contact box
+    const fcon=fadeUp(t,5200,500);
+    if(fcon.a>0){
+        ctx.globalAlpha=fcon.a;ctx.save();ctx.translate(0,fcon.y);
+        roundRect(25,495,W-50,90,16,'rgba(255,255,255,0.06)','rgba(255,255,255,0.12)');
+        ctx.fillStyle='#fff';ctx.font='600 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('📞 Besoin d\'aide ?',W/2,518);
+        ctx.fillStyle=GOLD;ctx.font='800 20px "Segoe UI",sans-serif';
+        ctx.shadowColor='rgba(249,168,37,0.4)';ctx.shadowBlur=12;
+        ctx.fillText(PHONE,W/2,546);
+        ctx.shadowBlur=0;ctx.shadowColor='transparent';
+        ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+        ctx.fillText('💬 WhatsApp • 📞 Appel',W/2,568);
+        ctx.restore();
+    }
+
+    // Havila
+    const fh=fadeUp(t,6500,400);
+    ctx.globalAlpha=fh.a*0.3;ctx.fillStyle='#fff';
+    ctx.font='400 11px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('© Plannie Business 2026 – by Havila',W/2,608+fh.y);
+    ctx.globalAlpha=fh.a*0.2;
+    ctx.fillText('📍 Lubumbashi, RD Congo',W/2,624+fh.y);
+    ctx.globalAlpha=1;
+}
+
+// S9: OUTRO — message final encourageant (55000 - 62000)
+function drawS9(t){
+    ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+
+    // Gentle particles
+    for(let i=0;i<20;i++){
+        const px=(Math.sin(t/1200+i*1.8)*0.4+0.5)*W;
+        const py=(Math.cos(t/900+i*2.3)*0.4+0.5)*H;
+        const sz=1.5+Math.sin(t/500+i)*1.5;
+        ctx.globalAlpha=0.1+Math.sin(t/600+i)*0.08;
+        ctx.beginPath();ctx.arc(px,py,sz,0,Math.PI*2);
+        ctx.fillStyle=G400;ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Logo fade in
+    const fl=fadeIn(t,300,600);
+    if(fl.a>0){
+        drawLogo(W/2,H*0.28,100,fl.a);
+    }
+
+    const f1=fadeUp(t,800,700);
+    ctx.globalAlpha=f1.a;ctx.fillStyle='#fff';
+    ctx.font='700 22px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('N\'attends plus.',W/2,H*0.45+f1.y);
+
+    const f2=fadeUp(t,2000,700);
+    ctx.globalAlpha=f2.a;ctx.fillStyle=GOLD;
+    ctx.font='800 24px "Segoe UI",sans-serif';
+    ctx.fillText('Publie.',W/2,H*0.53+f2.y);
+    ctx.fillText('Partage.',W/2,H*0.53+35+f2.y);
+    ctx.fillText('Vends. 💰',W/2,H*0.53+70+f2.y);
+
+    const f3=fadeUp(t,4000,600);
+    ctx.globalAlpha=f3.a;ctx.fillStyle=G300;
+    ctx.font='italic 15px "Segoe UI",sans-serif';
+    ctx.fillText('Le monde entier t\'attend',W/2,H*0.78+f3.y);
+    ctx.fillText('sur Plannie Business. 🌍',W/2,H*0.78+25+f3.y);
+
+    // Final URL
+    const fu=fadeUp(t,5500,500);
+    ctx.globalAlpha=fu.a;ctx.fillStyle=GOLD;
+    ctx.font='700 13px "Segoe UI",sans-serif';
+    ctx.shadowColor='rgba(249,168,37,0.3)';ctx.shadowBlur=6;
+    ctx.fillText('🔗 '+SITE_URL,W/2,H*0.92+fu.y);
+    ctx.shadowBlur=0;ctx.shadowColor='transparent';
+    ctx.globalAlpha=1;
+}
+
+// ============ MASTER RENDER ============
+const scenes=[
+    {start:0,      end:5500,  draw:drawS1},
+    {start:5500,   end:12000, draw:drawS2},
+    {start:12000,  end:19000, draw:drawS3},
+    {start:19000,  end:27000, draw:drawS4},
+    {start:27000,  end:34000, draw:drawS5},
+    {start:34000,  end:40000, draw:drawS6},
+    {start:40000,  end:46000, draw:drawS7},
+    {start:46000,  end:55000, draw:drawS8},
+    {start:55000,  end:62000, draw:drawS9},
+];
+
+function renderFrame(gt){
+    ctx.save();ctx.clearRect(0,0,W,H);
+    for(const sc of scenes){
+        if(gt>=sc.start&&gt<sc.end){sc.draw(gt-sc.start);break}
+    }
+    if(gt>=DURATION) drawS9(7000);
+    drawProgress(gt);
+    ctx.restore();
+}
+
+// ============ AUDIO ============
+let actx,masterGain,audioDest;
+function initAudio(rec){
+    actx=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=actx.createGain();masterGain.gain.value=0.8;
+    masterGain.connect(actx.destination);
+    if(rec){audioDest=actx.createMediaStreamDestination();masterGain.connect(audioDest)}
+}
+function playTone(f,dur,type='sine',vol=0.15){
+    if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();
+    o.type=type;o.frequency.value=f;g.gain.setValueAtTime(vol,actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+dur);
+    o.connect(g);g.connect(masterGain);o.start();o.stop(actx.currentTime+dur);
+}
+function sfxWhoosh(){
+    if(!actx)return;const n=actx.sampleRate*0.35,buf=actx.createBuffer(1,n,actx.sampleRate),d=buf.getChannelData(0);
+    for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3)*0.25;
+    const s=actx.createBufferSource();s.buffer=buf;
+    const bp=actx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=600;bp.Q.value=0.8;
+    bp.frequency.exponentialRampToValueAtTime(2200,actx.currentTime+0.3);
+    s.connect(bp);bp.connect(masterGain);s.start();
+}
+function sfxDing(){playTone(880,.4);setTimeout(()=>playTone(1320,.5,'sine',.1),80);setTimeout(()=>playTone(1760,.5,'sine',.06),160)}
+function sfxPop(){playTone(600,.1,'sine',.12);setTimeout(()=>playTone(900,.08,'sine',.08),50)}
+function sfxSuccess(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>playTone(f,.3,'sine',.1),i*100))}
+function sfxRise(){
+    if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();o.type='sine';
+    o.frequency.setValueAtTime(200,actx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(800,actx.currentTime+0.6);
+    g.gain.setValueAtTime(0.08,actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+0.7);
+    o.connect(g);g.connect(masterGain);o.start();o.stop(actx.currentTime+0.7);
+}
+function sfxClick(){playTone(1200,.05,'square',.06)}
+function sfxBeat(){playTone(70,.08,'sine',.03)}
+function sfxChime(){
+    playTone(1047,.3,'sine',.08);
+    setTimeout(()=>playTone(1319,.25,'sine',.06),120);
+    setTimeout(()=>playTone(1568,.3,'sine',.05),240);
+    setTimeout(()=>playTone(2093,.4,'sine',.04),360);
+}
+let bgInt;
+function startBg(){bgInt=setInterval(()=>sfxBeat(),500)}
+function stopBg(){clearInterval(bgInt)}
+
+function scheduleSounds(){
+    const ev=[
+        // S1: Hook
+        [0,sfxRise],[400,sfxDing],[1500,sfxPop],[2200,sfxPop],[4400,sfxPop],
+        // S2: Amazon Local
+        [5500,sfxWhoosh],[5800,sfxPop],[6100,sfxPop],[6600,sfxPop],[7100,sfxPop],
+        [7600,sfxPop],[8100,sfxPop],[10000,sfxDing],
+        // S3: Formulaire
+        [12000,sfxWhoosh],[12200,sfxPop],
+        [12800,sfxClick],[13200,sfxClick],[13600,sfxClick],[14000,sfxClick],
+        [14400,sfxClick],[14800,sfxClick],[15200,sfxClick],
+        [16200,sfxPop],[17400,sfxSuccess],[17800,sfxChime],
+        // S4: Pub gratuite
+        [19000,sfxWhoosh],[19200,sfxDing],
+        [19700,sfxPop],[21000,sfxPop],[22800,sfxPop],
+        [24800,sfxPop],[25800,sfxDing],
+        // S5: Commentaires
+        [27000,sfxWhoosh],[27200,sfxPop],
+        [28600,sfxClick],[29400,sfxClick],[30200,sfxClick],
+        [32000,sfxDing],
+        // S6: Friendly
+        [34000,sfxWhoosh],[34200,sfxPop],
+        [34800,sfxClick],[35600,sfxClick],[36400,sfxClick],[37200,sfxClick],[38000,sfxClick],
+        // S7: 3 étapes
+        [40000,sfxWhoosh],[40200,sfxDing],
+        [40600,sfxPop],[42000,sfxPop],[43400,sfxPop],
+        // S8: CTA
+        [46000,sfxRise],[46200,sfxChime],[46800,sfxPop],
+        [47400,sfxSuccess],[49200,sfxPop],[51200,sfxDing],
+        // S9: Outro
+        [55000,sfxRise],[55500,sfxPop],[56800,sfxDing],[58000,sfxPop],
+        [59500,sfxChime],[61000,sfxSuccess],
+    ];
+    ev.forEach(([t,fn])=>setTimeout(fn,t));
+    setTimeout(stopBg,55000);
+}
+
+// ============ PLAYBACK & RECORDING ============
+let isRunning=false;
+function runAd(download){
+    if(isRunning)return;
+    if(imgsLoaded<imgsTotal){
+        document.getElementById('status').textContent='⏳ Chargement des images...';
+        setTimeout(()=>runAd(download),500);return;
+    }
+    isRunning=true;
+    const btnP=document.getElementById('btnPlay'),btnD=document.getElementById('btnDl'),st=document.getElementById('status');
+    btnP.disabled=true;btnD.disabled=true;
+    initAudio(download);
+    let recorder,chunks=[];
+    if(download){
+        st.textContent='⏺ Enregistrement en cours... ~1 minute';
+        const vs=cv.captureStream(FPS);
+        if(audioDest)audioDest.stream.getAudioTracks().forEach(t=>vs.addTrack(t));
+        const mt=MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')?'video/webm;codecs=vp9,opus':
+                  MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')?'video/webm;codecs=vp8,opus':'video/webm';
+        recorder=new MediaRecorder(vs,{mimeType:mt,videoBitsPerSecond:3000000});
+        recorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+        recorder.onstop=()=>{
+            const blob=new Blob(chunks,{type:'video/webm'});const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');a.href=url;a.download='Plannie_Business_Pub3.webm';
+            document.body.appendChild(a);a.click();a.remove();
+            setTimeout(()=>URL.revokeObjectURL(url),5000);
+            st.textContent='✅ Vidéo téléchargée ! (Plannie_Business_Pub3.webm)';
+        };
+        recorder.start();
+    }else{st.textContent='▶ Lecture en cours...'}
+    startBg();scheduleSounds();
+    const t0=performance.now();
+    function loop(now){
+        const elapsed=now-t0;renderFrame(Math.min(elapsed,DURATION));
+        if(elapsed<DURATION+500){requestAnimationFrame(loop)}
+        else{
+            if(recorder&&recorder.state==='recording')recorder.stop();
+            isRunning=false;btnP.disabled=false;btnD.disabled=false;
+            if(!download)st.textContent='✅ Lecture terminée';
+        }
+    }
+    requestAnimationFrame(loop);
+}
+renderFrame(0);
+</script>
+</body>
+</html>
