@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plannie Business – Visible sur Google !</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;gap:16px}
+canvas{border-radius:16px;box-shadow:0 0 60px rgba(76,175,80,.25);max-width:95vw;max-height:80vh}
+@media(max-width:400px){canvas{border-radius:0}}
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.btn{padding:14px 28px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;display:flex;align-items:center;gap:8px}
+.btn-play{background:#2E7D32;color:#fff}.btn-play:hover{background:#388E3C}
+.btn-dl{background:#fff;color:#2E7D32}.btn-dl:hover{background:#E8F5E9}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.status{color:rgba(255,255,255,.5);font-size:13px;min-height:18px}
+</style>
+</head>
+<body>
+<canvas id="c" width="360" height="640"></canvas>
+<div class="controls">
+    <button class="btn btn-play" id="btnPlay" onclick="runAd(false)">▶ Lancer la pub</button>
+    <button class="btn btn-dl" id="btnDl" onclick="runAd(true)">📥 Télécharger la vidéo</button>
+</div>
+<div class="status" id="status"></div>
+
+<script>
+const W=360,H=640,FPS=30,DURATION=68000;
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+
+const G900='#1B5E20',G800='#2E7D32',G500='#4CAF50',G400='#66BB6A',G300='#81C784',G200='#A5D6A7';
+const GOLD='#F9A825',ORANGE='#EF6C00',BLUE='#1565C0',RED='#D32F2F';
+const GBLUE='#4285F4',GRED='#EA4335',GYELLOW='#FBBC05',GGREEN='#34A853';
+const SITE='plannie-business.onrender.com';
+const PHONE='+243 979 508 196';
+
+const imgFiles={
+    logo:'img/plannie_logo_1792797585289.jpg',
+    cover:'img/plannie_cover_1792799845450.jpg',
+    happy:'img/plannie_happy_result_1792799871450.jpg',
+    veste:'exp/veste_95_dollards_chez_tshoku_business.jpg',
+    chapatte:'exp/chapatte_500_chez_colodouce.jpg',
+    riz:'exp/Riz+Sauce+Viande_4000_chez_Bondo_Food.jpg',
+    gauffres:'exp/gauffres_3pcs_a_1000_chez_colodouce.jpg',
+    tissage:'exp/tissage_et_closur_40000FC_chez_chriska_business.jpg',
+};
+const imgs={};let imgsLoaded=0,imgsTotal=Object.keys(imgFiles).length;
+Object.entries(imgFiles).forEach(([k,src])=>{const im=new Image();im.onload=()=>{imgsLoaded++};im.onerror=()=>{imgsLoaded++};im.src=src;imgs[k]=im});
+
+// Helpers
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function easeOut(t){return 1-Math.pow(1-t,3)}
+function easeInOut(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2}
+function fadeUp(t,d,dur=500){const p=clamp((t-d)/dur,0,1);return{a:easeOut(p),y:25*(1-easeOut(p))}}
+function fadeIn(t,d,dur=500){return{a:easeOut(clamp((t-d)/dur,0,1))}}
+function slideL(t,d,dur=500){const p=clamp((t-d)/dur,0,1);return{a:easeOut(p),x:-40*(1-easeOut(p))}}
+function popScale(t,d,dur=400){const p=clamp((t-d)/dur,0,1);const s=p<.7?p/.7*1.15:1.15-(p-.7)/.3*.15;return{a:Math.min(p*2,1),s}}
+
+function roundRect(x,y,w,h,r,fill,stroke){
+    ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+    if(fill){ctx.fillStyle=fill;ctx.fill()}
+    if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke();ctx.lineWidth=1}
+}
+function drawBadge(x,y,text,bg,fg='#fff'){
+    ctx.font='700 11px "Segoe UI",sans-serif';const tw=ctx.measureText(text).width;
+    roundRect(x-tw/2-12,y-11,tw+24,24,12,bg);ctx.fillStyle=fg;ctx.textAlign='center';ctx.fillText(text,x,y+4);
+}
+function drawParticles(t,n=15,c=G400){
+    for(let i=0;i<n;i++){const px=(Math.sin(t/800+i*2.1)*0.4+0.5)*W;const py=(Math.cos(t/600+i*1.7)*0.4+0.5)*H;
+    const sz=2+Math.sin(t/400+i)*2;ctx.globalAlpha=0.15+Math.sin(t/500+i)*0.1;ctx.beginPath();ctx.arc(px,py,sz,0,Math.PI*2);ctx.fillStyle=c;ctx.fill()}ctx.globalAlpha=1;
+}
+function drawImgCover(img,x,y,w,h,a,zoom=1){
+    if(!img||!img.complete||!img.naturalWidth)return;ctx.save();ctx.globalAlpha=a;
+    ctx.beginPath();roundRect(x,y,w,h,0);ctx.clip();
+    const iAR=img.naturalWidth/img.naturalHeight,cAR=w/h;let sw,sh;
+    if(iAR>cAR){sh=h*zoom;sw=sh*iAR}else{sw=w*zoom;sh=sw/iAR}
+    ctx.drawImage(img,x+(w-sw)/2,y+(h-sh)/2,sw,sh);ctx.restore();
+}
+function wrapText(text,x,y,maxW,lineH){
+    const words=text.split(' ');let line='';
+    for(const w of words){const test=line+w+' ';if(ctx.measureText(test).width>maxW&&line!==''){ctx.fillText(line.trim(),x,y);y+=lineH;line=w+' '}else{line=test}}
+    ctx.fillText(line.trim(),x,y);return y+lineH;
+}
+function drawProgress(t){
+    ctx.fillStyle='rgba(255,255,255,0.08)';ctx.fillRect(0,H-4,W,4);
+    const grd=ctx.createLinearGradient(0,0,W*(t/DURATION),0);grd.addColorStop(0,G400);grd.addColorStop(1,'#fff');
+    ctx.fillStyle=grd;ctx.fillRect(0,H-4,W*(t/DURATION),4);
+}
+
+// Draw Google "G" logo
+function drawGoogleG(cx,cy,size,rotation=0){
+    ctx.save();ctx.translate(cx,cy);ctx.rotate(rotation);
+    const r=size/2;
+    // Blue arc (right+top)
+    ctx.beginPath();ctx.arc(0,0,r,-0.3,1.2);ctx.strokeStyle=GBLUE;ctx.lineWidth=size*0.18;ctx.lineCap='round';ctx.stroke();
+    // Red arc (top-left)
+    ctx.beginPath();ctx.arc(0,0,r,1.2,2.3);ctx.strokeStyle=GRED;ctx.stroke();
+    // Yellow arc (bottom-left)
+    ctx.beginPath();ctx.arc(0,0,r,2.3,3.5);ctx.strokeStyle=GYELLOW;ctx.stroke();
+    // Green arc (bottom-right)
+    ctx.beginPath();ctx.arc(0,0,r,3.5,5.9);ctx.strokeStyle=GGREEN;ctx.stroke();
+    // Blue horizontal bar
+    ctx.lineWidth=1;ctx.fillStyle=GBLUE;ctx.fillRect(-2,-size*0.09,r+2,size*0.18);
+    ctx.restore();
+}
+
+// Draw Google colored text
+function drawGoogleText(x,y,size){
+    ctx.font=`700 ${size}px "Segoe UI",sans-serif`;ctx.textAlign='left';
+    const letters=[{c:'G',f:GBLUE},{c:'o',f:GRED},{c:'o',f:GYELLOW},{c:'g',f:GBLUE},{c:'l',f:GGREEN},{c:'e',f:GRED}];
+    let cx=x;
+    letters.forEach(l=>{ctx.fillStyle=l.f;ctx.fillText(l.c,cx,y);cx+=ctx.measureText(l.c).width});
+}
+
+// Typing animation
+function typeText(text,t,charDelay=80){
+    const chars=Math.min(text.length,Math.floor(t/charDelay));
+    return text.substring(0,chars);
+}
+
+// ============================================================
+// SCENES
+// ============================================================
+
+// S1: HOOK — Breaking news style (0-5500)
+function drawS1(t){
+    ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+
+    // Dramatic flash
+    if(t<300){ctx.fillStyle=`rgba(255,255,255,${0.6*(1-t/300)})`;ctx.fillRect(0,0,W,H)}
+
+    // Breaking badge
+    const fb=popScale(t,200,600);
+    if(fb.a>0){
+        ctx.save();ctx.globalAlpha=fb.a;
+        ctx.translate(W/2,55);ctx.scale(fb.s,fb.s);ctx.translate(-W/2,-55);
+        const blink=t>1500?1:0.5+0.5*Math.sin(t/100);
+        roundRect(W/2-95,38,190,34,17,RED);
+        ctx.globalAlpha=fb.a*blink;
+        ctx.fillStyle='#fff';ctx.font='800 16px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('⚡ GRANDE NOUVELLE ⚡',W/2,62);
+        ctx.restore();
+    }
+
+    // Google G animation — spinning then settling
+    const fg=fadeIn(t,800,800);
+    if(fg.a>0){
+        ctx.globalAlpha=fg.a;
+        const rot=t<2500?(t-800)*0.008:0;
+        const gSize=t<2500?40+easeOut(clamp((t-800)/1700,0,1))*30:70;
+        drawGoogleG(W/2,175,gSize,rot);
+    }
+
+    // Main announcement
+    const f1=fadeUp(t,2000,700);
+    ctx.globalAlpha=f1.a;ctx.fillStyle='#fff';
+    ctx.font='800 24px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Plannie Business',W/2,H*0.42+f1.y);
+    ctx.fillText('est maintenant',W/2,H*0.42+34+f1.y);
+
+    const f2=fadeUp(t,2800,700);
+    ctx.globalAlpha=f2.a;ctx.fillStyle=GBLUE;
+    ctx.font='800 26px "Segoe UI",sans-serif';
+    ctx.fillText('VISIBLE SUR',W/2,H*0.58+f2.y);
+
+    const fgo=fadeUp(t,3400,600);
+    if(fgo.a>0){
+        ctx.globalAlpha=fgo.a;
+        // Google text centered
+        ctx.font='800 38px "Segoe UI",sans-serif';
+        const gw=ctx.measureText('Google').width;
+        drawGoogleText(W/2-gw/2,H*0.58+48+fgo.y,38);
+    }
+
+    // Exclamation
+    const fe=fadeUp(t,4200,400);
+    ctx.globalAlpha=fe.a;ctx.fillStyle='#fff';
+    ctx.font='800 30px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('! 🎉',W/2+80,H*0.58+48+fe.y);
+
+    // Pulsing arrow
+    if(t>4800){
+        ctx.globalAlpha=0.3+0.7*Math.abs(Math.sin(t/300));
+        ctx.fillStyle='#fff';ctx.font='20px sans-serif';ctx.fillText('↓',W/2,H-25);
+    }
+    ctx.globalAlpha=1;
+}
+
+// S2: GOOGLE SEARCH SIMULATION (5500-14000)
+function drawS2(t){
+    // White Google-like background
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
+
+    // Google logo at top
+    const fl=fadeIn(t,100,400);
+    ctx.globalAlpha=fl.a;
+    drawGoogleText(W/2-55,42,28);
+    ctx.globalAlpha=1;
+
+    // Search bar
+    const fsb=fadeUp(t,300,400);
+    if(fsb.a>0){
+        ctx.globalAlpha=fsb.a;
+        roundRect(20,58+fsb.y,W-40,40,20,null,'#dfe1e5');
+        // Search icon
+        ctx.beginPath();ctx.arc(38,78+fsb.y,7,0,Math.PI*2);
+        ctx.strokeStyle='#9aa0a6';ctx.lineWidth=2;ctx.stroke();
+        ctx.beginPath();ctx.moveTo(43,83+fsb.y);ctx.lineTo(48,88+fsb.y);ctx.stroke();ctx.lineWidth=1;
+
+        // Typing animation
+        const typed=typeText('Plannie Business',Math.max(0,t-800),100);
+        ctx.fillStyle='#222';ctx.font='400 15px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText(typed,52,82+fsb.y);
+        // Blinking cursor
+        if(t<2500&&Math.floor(t/500)%2===0){
+            const tw=ctx.measureText(typed).width;
+            ctx.fillStyle='#222';ctx.fillRect(52+tw+2,68+fsb.y,2,20);
+        }
+    }
+
+    // Separator line (after typing done)
+    if(t>2600){
+        const fline=fadeIn(t,2600,200);
+        ctx.globalAlpha=fline.a*0.3;
+        ctx.fillStyle='#dfe1e5';ctx.fillRect(0,105,W,1);
+        ctx.globalAlpha=1;
+    }
+
+    // Search result #1 — Plannie Business (our site!)
+    if(t>3000){
+        const fr=fadeUp(t,3000,600);
+        ctx.globalAlpha=fr.a;
+        const ry=118+fr.y;
+
+        // Favicon + URL line
+        // Draw small Plannie leaf icon
+        ctx.fillStyle=G800;ctx.font='12px sans-serif';ctx.textAlign='left';
+        ctx.fillText('🌿',22,ry+13);
+        ctx.fillStyle='#202124';ctx.font='400 12px "Segoe UI",sans-serif';
+        ctx.fillText('plannie-business.onrender.com',40,ry+13);
+        ctx.fillStyle='#70757a';ctx.font='400 11px "Segoe UI",sans-serif';
+        ctx.fillText('https://plannie-business.onrender.com',40,ry+28);
+
+        // Title (blue link)
+        ctx.fillStyle='#1a0dab';ctx.font='700 17px "Segoe UI",sans-serif';
+        ctx.fillText('Plannie Business – Marché en',22,ry+52);
+        ctx.fillText('ligne local',22,ry+72);
+
+        // Description (black text with product names)
+        ctx.fillStyle='#4d5156';ctx.font='400 12px "Segoe UI",sans-serif';
+        const desc='Découvrez des articles locaux : Veste élégante 95$, Chapatte 500 FC, Riz+Sauce+Viande 4000 FC, Tissage & Closure...';
+        wrapText(desc,22,ry+92,W-44,17);
+
+        // Highlight glow around the result
+        if(t>3800&&t<5500){
+            const pulse=0.1+0.08*Math.sin(t/200);
+            ctx.strokeStyle=`rgba(66,133,244,${pulse})`;
+            ctx.lineWidth=3;
+            roundRect(14,ry-8,W-28,150,12,null,`rgba(66,133,244,${pulse+0.1})`);
+            ctx.lineWidth=1;
+        }
+
+        // "Voilà notre site !" annotation
+        if(t>4200){
+            const fa=fadeUp(t,4200,400);
+            ctx.globalAlpha=fa.a;
+            // Arrow pointing to result
+            ctx.strokeStyle=G800;ctx.lineWidth=2;
+            ctx.beginPath();ctx.moveTo(W-40,ry+65);ctx.lineTo(W-20,ry+45);ctx.stroke();
+            ctx.beginPath();ctx.moveTo(W-20,ry+45);ctx.lineTo(W-25,ry+55);ctx.stroke();
+            ctx.beginPath();ctx.moveTo(W-20,ry+45);ctx.lineTo(W-30,ry+47);ctx.stroke();
+            ctx.lineWidth=1;
+            // Label
+            roundRect(W-110,ry+68,100,28,8,G800);
+            ctx.fillStyle='#fff';ctx.font='700 11px "Segoe UI",sans-serif';ctx.textAlign='center';
+            ctx.fillText('Notre site ! ✅',W-60,ry+86);
+        }
+    }
+
+    // Search result #2 (faded, generic)
+    if(t>5000){
+        const fr2=fadeUp(t,5000,400);
+        ctx.globalAlpha=fr2.a*0.35;
+        const ry2=280+fr2.y;
+        ctx.fillStyle='#70757a';ctx.font='400 11px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText('www.autre-site.com',40,ry2+13);
+        ctx.fillStyle='#1a0dab';ctx.font='700 14px "Segoe UI",sans-serif';
+        ctx.fillText('Autre résultat de recherche...',22,ry2+35);
+        ctx.fillStyle='#4d5156';ctx.font='400 11px "Segoe UI",sans-serif';
+        ctx.fillText('Lorem ipsum dolor sit amet...',22,ry2+55);
+    }
+
+    // Bottom message
+    if(t>6000){
+        const fm=fadeUp(t,6000,500);
+        ctx.globalAlpha=fm.a;
+        roundRect(15,H-90+fm.y,W-30,70,14,G800);
+        ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Plannie Business apparaît',W/2,H-68+fm.y);
+        ctx.fillText('dans les résultats Google ! 🎉',W/2,H-48+fm.y);
+    }
+
+    ctx.globalAlpha=1;
+}
+
+// S3: CONSEQUENCE 1 — Plus besoin du lien (14000-21000)
+function drawS3(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,'#0D3B14');grd.addColorStop(1,G900);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawParticles(t,16,G300);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 18px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Qu\'est-ce que ça change',W/2,42+ft.y);
+    ctx.fillText('pour TOI ? 🤔',W/2,66+ft.y);
+    ctx.globalAlpha=1;
+
+    // Point 1: Plus besoin de lien
+    const f1=fadeUp(t,800,600);
+    if(f1.a>0){
+        ctx.globalAlpha=f1.a;
+        roundRect(15,100+f1.y,W-30,155,16,'rgba(66,133,244,0.08)','rgba(66,133,244,0.3)');
+
+        // Number
+        ctx.beginPath();ctx.arc(45,130+f1.y,18,0,Math.PI*2);ctx.fillStyle=GBLUE;ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='800 18px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('1',45,137+f1.y);
+
+        ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='700 15px "Segoe UI",sans-serif';
+        ctx.fillText('Plus besoin du lien !',72,128+f1.y);
+
+        ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+        wrapText("Tape simplement « Plannie Business » dans Google et tu arrives directement sur le site. Fini la galère de chercher le lien !",30,155+f1.y,W-60,17);
+
+        // Mini search bar illustration
+        roundRect(35,215+f1.y,W-70,30,15,null,'rgba(255,255,255,0.2)');
+        ctx.fillStyle='rgba(255,255,255,0.7)';ctx.font='400 12px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText('🔍 Plannie Business',50,235+f1.y);
+        ctx.fillStyle=G400;ctx.font='700 10px "Segoe UI",sans-serif';ctx.textAlign='right';
+        ctx.fillText('→ Accès direct !',W-50,235+f1.y);
+    }
+
+    // Point 2: Tes articles visibles mondialement
+    const f2=fadeUp(t,2500,600);
+    if(f2.a>0){
+        ctx.globalAlpha=f2.a;
+        roundRect(15,275+f2.y,W-30,155,16,'rgba(52,168,83,0.08)','rgba(52,168,83,0.3)');
+
+        ctx.beginPath();ctx.arc(45,305+f2.y,18,0,Math.PI*2);ctx.fillStyle=GGREEN;ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='800 18px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('2',45,312+f2.y);
+
+        ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='700 15px "Segoe UI",sans-serif';
+        ctx.fillText('Tes articles sur Google !',72,303+f2.y);
+
+        ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+        wrapText("En publiant ton article sur Plannie Business, il apparaît dans les résultats Google. C'est le MONDE ENTIER qui peut le voir !",30,328+f2.y,W-60,17);
+
+        // Globe animation
+        if(t>3200){
+            const spin=(t-3200)*0.002;
+            ctx.font='28px sans-serif';ctx.textAlign='center';
+            ctx.fillText('🌍',W-50,395+f2.y);
+        }
+    }
+
+    // Point 3: L'IA peut proposer tes articles
+    const f3=fadeUp(t,4500,600);
+    if(f3.a>0){
+        ctx.globalAlpha=f3.a;
+        roundRect(15,450+f3.y,W-30,155,16,'rgba(249,168,37,0.08)','rgba(249,168,37,0.3)');
+
+        ctx.beginPath();ctx.arc(45,480+f3.y,18,0,Math.PI*2);ctx.fillStyle=GOLD;ctx.fill();
+        ctx.fillStyle='#333';ctx.font='800 18px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('3',45,487+f3.y);
+
+        ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='700 15px "Segoe UI",sans-serif';
+        ctx.fillText('L\'IA parle de tes articles !',72,478+f3.y);
+
+        ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+        wrapText("Gemini, l'IA de Google, peut proposer tes articles dans ses réponses. Un marketing sans pareil, totalement automatique !",30,503+f3.y,W-60,17);
+
+        // Gemini sparkle
+        if(t>5200){
+            const blink=0.5+0.5*Math.sin(t/250);
+            ctx.globalAlpha=f3.a*blink;
+            ctx.font='20px sans-serif';ctx.textAlign='center';
+            ctx.fillText('✨',W-45,565+f3.y);
+        }
+    }
+    ctx.globalAlpha=1;
+}
+
+// S4: LE BOUTON VERT — Montrer le bouton de soumission (21000-29000)
+function drawS4(t){
+    ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 18px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Tu connais ce bouton ? 👇',W/2,40+ft.y);
+    ctx.globalAlpha=1;
+
+    // Phone mockup showing the site homepage
+    const fphone=fadeUp(t,500,600);
+    if(fphone.a>0){
+        ctx.globalAlpha=fphone.a;
+        // Phone frame
+        roundRect(25,65+fphone.y,W-50,H-130,24,'rgba(255,255,255,0.03)','rgba(255,255,255,0.12)');
+
+        // Status bar
+        roundRect(35,75+fphone.y,W-70,22,8,'rgba(46,125,50,0.4)');
+        ctx.fillStyle=G400;ctx.font='600 9px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('plannie-business.onrender.com',W/2,90+fphone.y);
+
+        // Site header (Plannie logo area)
+        roundRect(35,102+fphone.y,W-70,55,0,G800);
+        // Leaf icon
+        ctx.fillStyle='#fff';ctx.font='20px sans-serif';ctx.textAlign='center';
+        ctx.fillText('🌿',W/2,122+fphone.y);
+        ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';
+        ctx.fillText('Plannie Business',W/2,145+fphone.y);
+
+        // Fake article cards in slider
+        const sliderY=165+fphone.y;
+        roundRect(40,sliderY,120,85,10,'rgba(255,255,255,0.06)');
+        if(imgs.veste&&imgs.veste.complete){
+            ctx.save();ctx.beginPath();roundRect(43,sliderY+3,114,50,8);ctx.clip();
+            const iAR=imgs.veste.naturalWidth/imgs.veste.naturalHeight;
+            let sw=114,sh=sw/iAR;if(sh<50){sh=50;sw=sh*iAR}
+            ctx.drawImage(imgs.veste,43+(114-sw)/2,sliderY+3+(50-sh)/2,sw,sh);
+            ctx.restore();
+        }
+        ctx.fillStyle='#fff';ctx.font='600 8px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText('Veste - 95$',46,sliderY+68);
+        ctx.fillStyle=G300;ctx.font='400 7px "Segoe UI",sans-serif';
+        ctx.fillText('Tshoku Business',46,sliderY+79);
+
+        roundRect(168,sliderY,120,85,10,'rgba(255,255,255,0.06)');
+        if(imgs.riz&&imgs.riz.complete){
+            ctx.save();ctx.beginPath();roundRect(171,sliderY+3,114,50,8);ctx.clip();
+            const iAR=imgs.riz.naturalWidth/imgs.riz.naturalHeight;
+            let sw=114,sh=sw/iAR;if(sh<50){sh=50;sw=sh*iAR}
+            ctx.drawImage(imgs.riz,171+(114-sw)/2,sliderY+3+(50-sh)/2,sw,sh);
+            ctx.restore();
+        }
+        ctx.fillStyle='#fff';ctx.font='600 8px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText('Riz+Sauce - 4000FC',174,sliderY+68);
+        ctx.fillStyle=G300;ctx.font='400 7px "Segoe UI",sans-serif';
+        ctx.fillText('Bondo Food',174,sliderY+79);
+    }
+
+    // THE GREEN BUTTON — highlighted with mega glow
+    const btnY=270+fphone.y;
+    const fbtn=fadeUp(t,2000,600);
+    if(fbtn.a>0){
+        ctx.globalAlpha=fbtn.a;
+
+        // Mega pulse glow around the button
+        const pulse=0.5+0.5*Math.sin(t/200);
+        ctx.shadowColor=`rgba(76,175,80,${0.4+0.3*pulse})`;
+        ctx.shadowBlur=25+15*pulse;
+
+        // The actual green button
+        roundRect(40,btnY+fbtn.y,W-80,48,24,G800);
+        ctx.shadowColor='transparent';ctx.shadowBlur=0;
+
+        ctx.fillStyle='#fff';ctx.font='700 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('📝  Demander une publication',W/2,btnY+22+fbtn.y);
+        ctx.fillText('de mon article sur le site',W/2,btnY+38+fbtn.y);
+
+        // Animated pointer arrows converging on button
+        if(t>3000){
+            const bounce=Math.sin(t/250)*8;
+            ctx.globalAlpha=fbtn.a*(0.6+0.4*Math.abs(Math.sin(t/350)));
+            // Left arrow
+            ctx.fillStyle=GOLD;ctx.font='22px sans-serif';
+            ctx.fillText('👉',18,btnY+28+bounce+fbtn.y);
+            // Right arrow
+            ctx.fillText('👈',W-38,btnY+28-bounce+fbtn.y);
+            // Top arrow
+            ctx.fillText('👇',W/2,btnY-18+Math.abs(bounce)+fbtn.y);
+        }
+    }
+
+    // Annotation below button
+    const fann=fadeUp(t,3800,500);
+    if(fann.a>0){
+        ctx.globalAlpha=fann.a;
+        roundRect(25,btnY+65+fann.y,W-50,60,12,GOLD);
+        ctx.fillStyle='#222';ctx.font='800 13px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('CE BOUTON est ta porte d\'entrée',W/2,btnY+82+fann.y);
+        ctx.fillText('vers Google et le monde entier !',W/2,btnY+100+fann.y);
+    }
+
+    // More site content below (scrolling feel)
+    if(t>4500){
+        const fmore=fadeIn(t,4500,400);
+        ctx.globalAlpha=fmore.a*0.4;
+        // Fake comments area
+        ctx.fillStyle='rgba(255,255,255,0.5)';ctx.font='400 10px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('⭐ Commentaires des clients',W/2,btnY+145);
+
+        for(let i=0;i<2;i++){
+            roundRect(40,btnY+155+i*40,W-80,32,8,'rgba(255,255,255,0.03)');
+            ctx.fillStyle='rgba(255,255,255,0.3)';ctx.font='400 8px "Segoe UI",sans-serif';ctx.textAlign='left';
+            ctx.fillText(i===0?'"Super qualité !" - ⭐⭐⭐⭐⭐':'"Livraison rapide" - ⭐⭐⭐⭐',48,btnY+175+i*40);
+        }
+    }
+
+    // Footer urgent message
+    const furg=fadeUp(t,6000,500);
+    if(furg.a>0){
+        ctx.globalAlpha=furg.a;
+        const blink=0.7+0.3*Math.sin(t/200);
+        ctx.globalAlpha=furg.a*blink;
+        roundRect(15,H-65+furg.y,W-30,48,14,RED);
+        ctx.fillStyle='#fff';ctx.font='700 13px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('⚠️ Profite MAINTENANT — c\'est GRATUIT',W/2,H-45+furg.y);
+        ctx.font='400 11px "Segoe UI",sans-serif';
+        ctx.fillText('Bientôt : Plans payants !',W/2,H-28+furg.y);
+    }
+    ctx.globalAlpha=1;
+}
+
+// S5: IA GEMINI — Tes articles dans les réponses IA (29000-38000)
+function drawS5(t){
+    ctx.fillStyle='#0a0a0a';ctx.fillRect(0,0,W,H);
+
+    const ft=fadeUp(t,100,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 18px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('🤖 L\'IA travaille pour toi !',W/2,40+ft.y);
+    ctx.globalAlpha=1;
+
+    // Gemini-like chat interface
+    const fchat=fadeUp(t,600,500);
+    if(fchat.a>0){
+        ctx.globalAlpha=fchat.a;
+        roundRect(20,65+fchat.y,W-40,H-120,18,'rgba(255,255,255,0.03)','rgba(255,255,255,0.08)');
+
+        // Gemini header
+        roundRect(30,75+fchat.y,W-60,32,10,'rgba(66,133,244,0.15)');
+        // Gemini sparkle icon
+        ctx.fillStyle=GBLUE;ctx.font='700 13px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText('✨ Gemini',42,96+fchat.y);
+        ctx.fillStyle='rgba(255,255,255,0.4)';ctx.font='400 10px "Segoe UI",sans-serif';ctx.textAlign='right';
+        ctx.fillText("L'IA de Google",W-42,96+fchat.y);
+
+        // User question bubble
+        const fq=fadeUp(t,1500,500);
+        if(fq.a>0){
+            ctx.globalAlpha=fchat.a*fq.a;
+            const qy=120+fchat.y+fq.y;
+            roundRect(80,qy,W-115,55,12,'rgba(66,133,244,0.2)');
+            ctx.fillStyle='#fff';ctx.font='400 11px "Segoe UI",sans-serif';ctx.textAlign='left';
+            wrapText('"Où acheter une veste élégante à Lubumbashi ? Pas trop chère."',92,qy+15,W-140,16);
+            ctx.fillStyle='rgba(255,255,255,0.3)';ctx.font='400 9px "Segoe UI",sans-serif';ctx.textAlign='right';
+            ctx.fillText('Utilisateur',W-42,qy+50);
+        }
+
+        // Gemini response with article suggestion
+        const fa=fadeUp(t,3000,700);
+        if(fa.a>0){
+            ctx.globalAlpha=fchat.a*fa.a;
+            const ay=190+fchat.y+fa.y;
+
+            // Sparkle icon
+            ctx.fillStyle=GBLUE;ctx.font='14px sans-serif';ctx.textAlign='left';
+            ctx.fillText('✨',35,ay+15);
+
+            // Response text — typing effect
+            const respText="D'après Plannie Business, un marché en ligne local, une Veste élégante est disponible à 95 $ chez Tshoku Business à Lubumbashi.";
+            const typed2=typeText(respText,Math.max(0,t-3200),35);
+            ctx.fillStyle='rgba(255,255,255,0.85)';ctx.font='400 12px "Segoe UI",sans-serif';ctx.textAlign='left';
+            wrapText(typed2,52,ay+10,W-95,17);
+
+            // Article card embedded in AI response
+            if(t>5500){
+                const fcard=fadeUp(t,5500,500);
+                ctx.globalAlpha=fchat.a*fa.a*fcard.a;
+                const cy=ay+90+fcard.y;
+                roundRect(45,cy,W-90,80,12,'rgba(255,255,255,0.06)','rgba(255,255,255,0.12)');
+
+                if(imgs.veste&&imgs.veste.complete){
+                    ctx.save();ctx.beginPath();roundRect(51,cy+6,60,60,8);ctx.clip();
+                    const iAR=imgs.veste.naturalWidth/imgs.veste.naturalHeight;
+                    let sw=60,sh=sw/iAR;if(sh<60){sh=60;sw=sh*iAR}
+                    ctx.drawImage(imgs.veste,51+(60-sw)/2,cy+6+(60-sh)/2,sw,sh);
+                    ctx.restore();
+                }
+                ctx.fillStyle='#fff';ctx.font='700 12px "Segoe UI",sans-serif';ctx.textAlign='left';
+                ctx.fillText('Veste élégante',120,cy+22);
+                ctx.fillStyle=G400;ctx.font='800 14px "Segoe UI",sans-serif';
+                ctx.fillText('95 $',120,cy+42);
+                ctx.fillStyle=G300;ctx.font='400 10px "Segoe UI",sans-serif';
+                ctx.fillText('📍 Tshoku Business',120,cy+58);
+
+                // Source link
+                ctx.fillStyle=GBLUE;ctx.font='400 9px "Segoe UI",sans-serif';
+                ctx.fillText('Source : plannie-business.onrender.com',52,cy+76);
+            }
+        }
+
+        // "TON article ici !" annotation
+        if(t>6800){
+            const fann=fadeUp(t,6800,500);
+            ctx.globalAlpha=fann.a;
+            const annY=400+fchat.y;
+            roundRect(30,annY+fann.y,W-60,50,12,GOLD);
+            ctx.fillStyle='#222';ctx.font='800 13px "Segoe UI",sans-serif';ctx.textAlign='center';
+            ctx.fillText('TON article pourrait être',W/2,annY+18+fann.y);
+            ctx.fillText('proposé ici par l\'IA ! 🤯',W/2,annY+36+fann.y);
+        }
+    }
+
+    // Bottom message
+    if(t>7800){
+        const fb=fadeUp(t,7800,500);
+        ctx.globalAlpha=fb.a;
+        ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Un marketing automatique,',W/2,H-65+fb.y);
+        ctx.fillText('sans effort, sans payer ! 🚀',W/2,H-42+fb.y);
+    }
+
+    ctx.globalAlpha=1;
+}
+
+// S6: URGENCE — Profite maintenant, plans payants bientôt (38000-45000)
+function drawS6(t){
+    ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+
+    // Red urgent flash
+    if(t<400){
+        ctx.fillStyle=`rgba(211,47,47,${0.3*(1-t/400)})`;ctx.fillRect(0,0,W,H);
+    }
+
+    const ft=fadeUp(t,200,400);
+    ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
+    ctx.font='700 22px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('⏰ Profite MAINTENANT !',W/2,50+ft.y);
+    ctx.globalAlpha=1;
+
+    // Timeline: gratuit → payant
+    const ftime=fadeUp(t,800,600);
+    if(ftime.a>0){
+        ctx.globalAlpha=ftime.a;
+
+        // NOW — gratuit
+        const nowY=100+ftime.y;
+        roundRect(20,nowY,W-40,120,14,'rgba(76,175,80,0.1)','rgba(76,175,80,0.3)');
+        // Green dot
+        ctx.beginPath();ctx.arc(50,nowY+30,12,0,Math.PI*2);ctx.fillStyle=G500;ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='700 12px sans-serif';ctx.textAlign='center';ctx.fillText('✓',50,nowY+35);
+
+        ctx.textAlign='left';ctx.fillStyle=G400;ctx.font='800 16px "Segoe UI",sans-serif';
+        ctx.fillText('AUJOURD\'HUI',72,nowY+30);
+        ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';
+        ctx.fillText('100% GRATUIT',72,nowY+52);
+        ctx.fillStyle=G200;ctx.font='400 11px "Segoe UI",sans-serif';
+        wrapText('Publie autant d\'articles que tu veux. Zéro frais. Visible sur Google et par l\'IA.',35,nowY+72,W-70,15);
+
+        // Connector line
+        ctx.strokeStyle='rgba(255,255,255,0.15)';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+        ctx.beginPath();ctx.moveTo(50,nowY+120);ctx.lineTo(50,nowY+140);ctx.stroke();
+        ctx.setLineDash([]);ctx.lineWidth=1;
+    }
+
+    // BIENTÔT — payant
+    const fsoon=fadeUp(t,2200,600);
+    if(fsoon.a>0){
+        ctx.globalAlpha=fsoon.a;
+        const soonY=260+ftime.y;
+        roundRect(20,soonY,W-40,110,14,'rgba(249,168,37,0.08)','rgba(249,168,37,0.2)');
+
+        ctx.beginPath();ctx.arc(50,soonY+30,12,0,Math.PI*2);ctx.fillStyle=GOLD;ctx.fill();
+        ctx.fillStyle='#333';ctx.font='700 12px sans-serif';ctx.textAlign='center';ctx.fillText('$',50,soonY+35);
+
+        ctx.textAlign='left';ctx.fillStyle=GOLD;ctx.font='800 16px "Segoe UI",sans-serif';
+        ctx.fillText('BIENTÔT',72,soonY+30);
+        ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';
+        ctx.fillText('Plans payants',72,soonY+52);
+        ctx.fillStyle='rgba(255,255,255,0.5)';ctx.font='400 11px "Segoe UI",sans-serif';
+        wrapText('La publication deviendra payante. Ceux qui publient maintenant auront un avantage !',35,soonY+72,W-70,15);
+    }
+
+    // Countdown urgency
+    const fcta=fadeUp(t,4000,500);
+    if(fcta.a>0){
+        ctx.globalAlpha=fcta.a;
+        const pulse=0.7+0.3*Math.sin(t/180);
+        ctx.globalAlpha=fcta.a*pulse;
+
+        roundRect(20,420+fcta.y,W-40,65,16,G800);
+        ctx.fillStyle='#fff';ctx.font='800 17px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('📝 Publie ton article',W/2,445+fcta.y);
+        ctx.fillText('GRATUITEMENT maintenant !',W/2,468+fcta.y);
+    }
+
+    // Subtle reminder
+    const fr=fadeUp(t,5500,400);
+    if(fr.a>0){
+        ctx.globalAlpha=fr.a*0.6;ctx.fillStyle='#fff';
+        ctx.font='400 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Clique sur le gros bouton vert',W/2,520+fr.y);
+        ctx.fillText('sur la page d\'accueil du site',W/2,538+fr.y);
+    }
+
+    // URL
+    const fu=fadeUp(t,6000,300);
+    ctx.globalAlpha=fu.a;ctx.fillStyle=GBLUE;
+    ctx.font='700 13px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('🔗 '+SITE,W/2,575+fu.y);
+    ctx.globalAlpha=1;
+}
+
+// S7: CTA FINAL (45000-56000)
+function drawS7(t){
+    const grd=ctx.createLinearGradient(0,0,W,H);
+    grd.addColorStop(0,G800);grd.addColorStop(1,G900);
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);
+    drawParticles(t,14,'rgba(255,255,255,0.2)');
+
+    // Logo
+    const fl=fadeUp(t,100,500);
+    if(fl.a>0&&imgs.logo&&imgs.logo.complete){
+        ctx.save();ctx.globalAlpha=fl.a;const sz=70;
+        ctx.beginPath();ctx.arc(W/2,55,sz/2+3,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,0.1)';ctx.fill();
+        ctx.beginPath();ctx.arc(W/2,55,sz/2,0,Math.PI*2);ctx.clip();
+        ctx.drawImage(imgs.logo,W/2-sz/2,55-sz/2,sz,sz);ctx.restore();
+    }
+
+    const fn=fadeUp(t,300,500);
+    ctx.globalAlpha=fn.a;ctx.fillStyle='#fff';
+    ctx.font='800 38px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Plannie',W/2,125+fn.y);
+    const fb=popScale(t,500,400);
+    if(fb.a>0){ctx.globalAlpha=fb.a;drawBadge(W/2,150,'BUSINESS',GOLD,'#333')}
+
+    // "Now on Google" badge
+    const fgb=popScale(t,800,500);
+    if(fgb.a>0){
+        ctx.save();ctx.globalAlpha=fgb.a;
+        ctx.translate(W/2,182);ctx.scale(fgb.s,fgb.s);ctx.translate(-W/2,-182);
+        roundRect(W/2-80,170,160,26,13,'rgba(255,255,255,0.1)','rgba(255,255,255,0.25)');
+        ctx.fillStyle='#fff';ctx.font='600 11px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('🔍 Maintenant sur Google',W/2,188);
+        ctx.restore();
+    }
+
+    // Recap
+    const recap=[
+        '🔍 Visible dans les résultats Google',
+        '🤖 Proposé par l\'IA Gemini',
+        '📝 Publie GRATUITEMENT (pour l\'instant !)',
+        '🌍 Le monde entier voit tes articles',
+        '👆 1 clic pour commander',
+        '📞 Service client Havila disponible 24/7',
+    ];
+    recap.forEach((r,i)=>{
+        const sl=fadeUp(t,1400+i*350,400);
+        if(sl.a<=0)return;
+        ctx.globalAlpha=sl.a;ctx.fillStyle=G200;
+        ctx.font='500 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText(r,W/2,218+i*26+sl.y);
+    });
+
+    // CTA
+    const fcta=fadeUp(t,4200,400);
+    if(fcta.a>0){
+        const pulse=0.7+0.3*Math.sin(t/200);
+        ctx.globalAlpha=fcta.a*pulse;
+        const btnY=395+fcta.y;
+        ctx.shadowColor='rgba(255,255,255,0.2)';ctx.shadowBlur=20;
+        roundRect(25,btnY,W-50,52,26,'#fff');
+        ctx.shadowColor='transparent';ctx.shadowBlur=0;
+        ctx.fillStyle=G800;ctx.font='700 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('📝 Publier mon article maintenant',W/2,btnY+33);
+    }
+    ctx.globalAlpha=1;
+
+    // URL
+    const fu=fadeUp(t,5000,400);
+    ctx.globalAlpha=fu.a;ctx.fillStyle=GOLD;
+    ctx.font='700 13px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('🔗 '+SITE,W/2,475+fu.y);
+    ctx.fillStyle='rgba(255,255,255,0.4)';ctx.font='400 11px "Segoe UI",sans-serif';
+    ctx.fillText('ou tape « Plannie Business » sur Google !',W/2,498+fu.y);
+
+    // Contact
+    const fcon=fadeUp(t,5800,500);
+    if(fcon.a>0){
+        ctx.globalAlpha=fcon.a;
+        roundRect(30,518+fcon.y,W-60,72,14,'rgba(255,255,255,0.06)','rgba(255,255,255,0.1)');
+        ctx.fillStyle='#fff';ctx.font='600 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('📞 Service client Havila',W/2,538+fcon.y);
+        ctx.fillStyle=GOLD;ctx.font='800 18px "Segoe UI",sans-serif';
+        ctx.fillText(PHONE,W/2,562+fcon.y);
+        ctx.fillStyle=G200;ctx.font='400 10px "Segoe UI",sans-serif';
+        ctx.fillText('WhatsApp • Appel • À tout moment',W/2,580+fcon.y);
+    }
+
+    const fh=fadeUp(t,7000,400);
+    ctx.globalAlpha=fh.a*0.3;ctx.fillStyle='#fff';
+    ctx.font='400 10px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('© Plannie Business 2026 – by Havila • Lubumbashi',W/2,612+fh.y);
+    ctx.globalAlpha=1;
+}
+
+// S8: OUTRO (56000-68000)
+function drawS8(t){
+    ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+    drawParticles(t,20,G400);
+
+    // Google G spinning slowly
+    const fg=fadeIn(t,300,800);
+    if(fg.a>0){
+        ctx.globalAlpha=fg.a*0.6;
+        drawGoogleG(W/2,H*0.15,50,t*0.0005);
+    }
+
+    const f1=fadeUp(t,1000,800);
+    ctx.globalAlpha=f1.a;ctx.fillStyle='#fff';
+    ctx.font='700 22px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Ton article',W/2,H*0.32+f1.y);
+    ctx.fillText('est désormais',W/2,H*0.32+32+f1.y);
+
+    const f2=fadeUp(t,2500,700);
+    ctx.globalAlpha=f2.a;ctx.fillStyle=GBLUE;
+    ctx.font='800 26px "Segoe UI",sans-serif';
+    ctx.fillText('à portée d\'un',W/2,H*0.48+f2.y);
+
+    // Google text
+    const f3=fadeUp(t,3500,600);
+    if(f3.a>0){
+        ctx.globalAlpha=f3.a;
+        ctx.font='800 32px "Segoe UI",sans-serif';
+        const gw=ctx.measureText('Google').width;
+        drawGoogleText(W/2-gw/2,H*0.48+38+f3.y,32);
+    }
+
+    const f4=fadeUp(t,5000,700);
+    ctx.globalAlpha=f4.a;ctx.fillStyle=GOLD;
+    ctx.font='800 24px "Segoe UI",sans-serif';
+    ctx.fillText('Publie.',W/2,H*0.66+f4.y);
+    ctx.fillText('Le monde cherche.',W/2,H*0.66+34+f4.y);
+    ctx.fillText('Le monde te trouve. 🌍',W/2,H*0.66+68+f4.y);
+
+    const f5=fadeUp(t,7500,500);
+    ctx.globalAlpha=f5.a;ctx.fillStyle=G300;
+    ctx.font='italic 13px "Segoe UI",sans-serif';
+    ctx.fillText(SITE,W/2,H*0.88+f5.y);
+
+    const f6=fadeIn(t,9000,500);
+    ctx.globalAlpha=f6.a*0.3;ctx.fillStyle='#fff';
+    ctx.font='400 10px "Segoe UI",sans-serif';
+    ctx.fillText('🌿 Plannie Business – by Havila',W/2,H*0.95);
+    ctx.globalAlpha=1;
+}
+
+const scenes=[
+    {start:0,end:5500,draw:drawS1},
+    {start:5500,end:14000,draw:drawS2},
+    {start:14000,end:21000,draw:drawS3},
+    {start:21000,end:29000,draw:drawS4},
+    {start:29000,end:38000,draw:drawS5},
+    {start:38000,end:45000,draw:drawS6},
+    {start:45000,end:56000,draw:drawS7},
+    {start:56000,end:68000,draw:drawS8},
+];
+
+function renderFrame(gt){
+    ctx.save();ctx.clearRect(0,0,W,H);
+    for(const sc of scenes){if(gt>=sc.start&&gt<sc.end){sc.draw(gt-sc.start);break}}
+    if(gt>=DURATION)drawS8(12000);
+    drawProgress(gt);ctx.restore();
+}
+
+// Audio
+let actx,masterGain,audioDest;
+function initAudio(rec){actx=new(window.AudioContext||window.webkitAudioContext)();masterGain=actx.createGain();masterGain.gain.value=0.8;masterGain.connect(actx.destination);if(rec){audioDest=actx.createMediaStreamDestination();masterGain.connect(audioDest)}}
+function playTone(f,dur,type='sine',vol=0.15){if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(vol,actx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+dur);o.connect(g);g.connect(masterGain);o.start();o.stop(actx.currentTime+dur)}
+function sfxWhoosh(){if(!actx)return;const n=actx.sampleRate*0.35,buf=actx.createBuffer(1,n,actx.sampleRate),d=buf.getChannelData(0);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3)*0.25;const s=actx.createBufferSource();s.buffer=buf;const bp=actx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=600;bp.Q.value=0.8;bp.frequency.exponentialRampToValueAtTime(2200,actx.currentTime+0.3);s.connect(bp);bp.connect(masterGain);s.start()}
+function sfxDing(){playTone(880,.4);setTimeout(()=>playTone(1320,.5,'sine',.1),80);setTimeout(()=>playTone(1760,.5,'sine',.06),160)}
+function sfxPop(){playTone(600,.1,'sine',.12);setTimeout(()=>playTone(900,.08,'sine',.08),50)}
+function sfxSuccess(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>playTone(f,.3,'sine',.1),i*100))}
+function sfxRise(){if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();o.type='sine';o.frequency.setValueAtTime(200,actx.currentTime);o.frequency.exponentialRampToValueAtTime(800,actx.currentTime+0.6);g.gain.setValueAtTime(0.08,actx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+0.7);o.connect(g);g.connect(masterGain);o.start();o.stop(actx.currentTime+0.7)}
+function sfxClick(){playTone(1200,.05,'square',.06)}
+function sfxBeat(){playTone(70,.08,'sine',.03)}
+function sfxChime(){playTone(1047,.3,'sine',.08);setTimeout(()=>playTone(1319,.25,'sine',.06),120);setTimeout(()=>playTone(1568,.3,'sine',.05),240);setTimeout(()=>playTone(2093,.4,'sine',.04),360)}
+function sfxAlert(){playTone(880,.15,'square',.1);setTimeout(()=>playTone(880,.15,'square',.1),200)}
+let bgInt;function startBg(){bgInt=setInterval(()=>sfxBeat(),500)}function stopBg(){clearInterval(bgInt)}
+
+function scheduleSounds(){
+    const ev=[
+        [0,sfxAlert],[200,sfxRise],[500,sfxDing],[2000,sfxPop],[2800,sfxPop],[3400,sfxChime],[4200,sfxSuccess],
+        [5500,sfxWhoosh],[6000,sfxClick],[6500,sfxClick],[7000,sfxClick],[7500,sfxClick],[8000,sfxClick],[8500,sfxPop],[9500,sfxDing],[11000,sfxPop],
+        [14000,sfxWhoosh],[14200,sfxDing],[14800,sfxPop],[16500,sfxPop],[18500,sfxPop],
+        [21000,sfxWhoosh],[21200,sfxPop],[23000,sfxDing],[24000,sfxPop],[25800,sfxPop],[27000,sfxAlert],[28000,sfxDing],
+        [29000,sfxWhoosh],[29200,sfxPop],[31000,sfxClick],[31500,sfxClick],[32000,sfxClick],[33000,sfxPop],[35500,sfxDing],[36800,sfxPop],
+        [38000,sfxAlert],[38200,sfxWhoosh],[39000,sfxPop],[40200,sfxPop],[42000,sfxDing],[43500,sfxPop],
+        [45000,sfxRise],[45200,sfxChime],[46500,sfxPop],[47000,sfxPop],[47500,sfxPop],[48000,sfxPop],[48500,sfxPop],[49000,sfxPop],[50000,sfxSuccess],[52000,sfxDing],
+        [56000,sfxRise],[57000,sfxPop],[58500,sfxDing],[60000,sfxPop],[62000,sfxChime],[64000,sfxSuccess],
+    ];
+    ev.forEach(([t,fn])=>setTimeout(fn,t));
+    setTimeout(stopBg,56000);
+}
+
+let isRunning=false;
+function runAd(download){
+    if(isRunning)return;
+    if(imgsLoaded<imgsTotal){document.getElementById('status').textContent='Chargement des images...';setTimeout(()=>runAd(download),500);return}
+    isRunning=true;
+    const btnP=document.getElementById('btnPlay'),btnD=document.getElementById('btnDl'),st=document.getElementById('status');
+    btnP.disabled=true;btnD.disabled=true;
+    initAudio(download);let recorder,chunks=[];
+    if(download){
+        st.textContent='Enregistrement en cours... ~1 min 8 sec';
+        const vs=cv.captureStream(FPS);
+        if(audioDest)audioDest.stream.getAudioTracks().forEach(t=>vs.addTrack(t));
+        const mt=MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')?'video/webm;codecs=vp9,opus':MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')?'video/webm;codecs=vp8,opus':'video/webm';
+        recorder=new MediaRecorder(vs,{mimeType:mt,videoBitsPerSecond:3000000});
+        recorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+        recorder.onstop=()=>{
+            const blob=new Blob(chunks,{type:'video/webm'});const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');a.href=url;a.download='Plannie_Business_SurGoogle.webm';
+            document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);
+            st.textContent='Video telechargee !';
+        };recorder.start();
+    }else{st.textContent='Lecture en cours...'}
+    startBg();scheduleSounds();
+    const t0=performance.now();
+    function loop(now){
+        const elapsed=now-t0;renderFrame(Math.min(elapsed,DURATION));
+        if(elapsed<DURATION+500){requestAnimationFrame(loop)}
+        else{if(recorder&&recorder.state==='recording')recorder.stop();isRunning=false;btnP.disabled=false;btnD.disabled=false;if(!download)st.textContent='Lecture terminee'}
+    }
+    requestAnimationFrame(loop);
+}
+renderFrame(0);
+</script>
+</body>
+</html>
