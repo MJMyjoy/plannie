@@ -88,15 +88,20 @@ function drawImgCover(img,x,y,w,h,a=1){
     ctx.drawImage(img,x+(w-sw)/2,y+(h-sh)/2,sw,sh);ctx.restore();
 }
 function drawImgCoverRound(img,x,y,w,h,r,a=1){
-    if(!img||!img.complete||!img.naturalWidth)return;ctx.save();ctx.globalAlpha=a;
-    ctx.beginPath();
-    ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
-    ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
-    ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
-    ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();ctx.clip();
-    const iAR=img.naturalWidth/img.naturalHeight,cAR=w/h;let sw,sh;
-    if(iAR>cAR){sh=h;sw=sh*iAR}else{sw=w;sh=sw/iAR}
-    ctx.drawImage(img,x+(w-sw)/2,y+(h-sh)/2,sw,sh);ctx.restore();
+    if(!img||!img.complete||!img.naturalWidth)return;
+    ctx.save();
+    try{
+        ctx.globalAlpha=a;
+        ctx.beginPath();
+        ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+        ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+        ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+        ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();ctx.clip();
+        const iAR=img.naturalWidth/img.naturalHeight,cAR=w/h;let sw,sh;
+        if(iAR>cAR){sh=h;sw=sh*iAR}else{sw=w;sh=sw/iAR}
+        ctx.drawImage(img,x+(w-sw)/2,y+(h-sh)/2,sw,sh);
+    }catch(e){console.error('drawImgCoverRound error:',e);}
+    ctx.restore();
 }
 function wrapText(text,x,y,maxW,lineH){
     const words=text.split(' ');let line='';
@@ -418,11 +423,17 @@ function drawS3(t){
 
 // ============================================================
 // S4: COMMENT VOS CLIENTS VOUS ATTEIGNENT — WhatsApp flow (23000-33000)
+// Two-phase scroll: Steps 1-2 then Step 3 (WhatsApp mockup)
 // ============================================================
 function drawS4(t){
-    try{
     ctx.fillStyle='#0a0a0a';ctx.fillRect(0,0,W,H);
 
+    // Scroll offset: content scrolls up after 4.5s to reveal step 3
+    const scrollStart=4500, scrollDur=800;
+    const scrollP=clamp((t-scrollStart)/scrollDur,0,1);
+    const scrollY=easeOut(scrollP)*310;
+
+    // Title (stays fixed)
     const ft=fadeUp(t,100,400);
     ctx.globalAlpha=ft.a;ctx.fillStyle='#fff';
     ctx.font='700 16px "Segoe UI",sans-serif';ctx.textAlign='center';
@@ -431,113 +442,117 @@ function drawS4(t){
     ctx.fillText('"Comment mes clients me contactent ?"',W/2,54+ft.y);
     ctx.globalAlpha=1;
 
+    // === SCROLLABLE CONTENT ===
+    ctx.save();
+    ctx.translate(0,-scrollY);
+
     // STEP 1: Client sees your article
-    const f1=fadeUp(t,800,600);
+    const f1=fadeUp(t,800,500);
     if(f1.a>0){
         ctx.globalAlpha=f1.a;
-        ctx.beginPath();ctx.arc(30,102+f1.y,14,0,Math.PI*2);ctx.fillStyle=G500;ctx.fill();
+        // Number circle
+        ctx.beginPath();ctx.arc(30,100+f1.y,14,0,Math.PI*2);ctx.fillStyle=G500;ctx.fill();
         ctx.fillStyle='#fff';ctx.font='800 14px "Segoe UI",sans-serif';ctx.textAlign='center';
-        ctx.fillText('1',30,108+f1.y);
+        ctx.fillText('1',30,106+f1.y);
 
         ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='700 13px "Segoe UI",sans-serif';
-        ctx.fillText('Le client voit votre article',52,105+f1.y);
+        ctx.fillText('Le client voit votre article',52,103+f1.y);
 
-        roundRect(25,125+f1.y,W-50,80,12,'rgba(255,255,255,0.04)','rgba(255,255,255,0.1)');
-        drawImgCoverRound(imgs.drap,32,131+f1.y,60,60,8,f1.a);
+        // Article card (simple, no clipping)
+        roundRect(25,122+f1.y,W-50,75,12,'rgba(255,255,255,0.04)','rgba(255,255,255,0.1)');
+        drawImgCoverRound(imgs.drap,32,128+f1.y,55,55,8,f1.a);
         ctx.fillStyle='#fff';ctx.font='600 11px "Segoe UI",sans-serif';ctx.textAlign='left';
-        ctx.fillText('2 Drap + 4 Oreiller',100,148+f1.y);
+        ctx.fillText('2 Drap + 4 Oreiller',96,145+f1.y);
         ctx.fillStyle=G400;ctx.font='700 13px "Segoe UI",sans-serif';
-        ctx.fillText('35.000 FC',100,168+f1.y);
+        ctx.fillText('35.000 FC',96,165+f1.y);
         ctx.fillStyle=GRAY;ctx.font='400 9px "Segoe UI",sans-serif';
-        ctx.fillText('Tshoku Business',100,184+f1.y);
+        ctx.fillText('Tshoku Business',96,181+f1.y);
         ctx.globalAlpha=1;
     }
 
-    // Arrow down
-    if(t>1800){
-        const fa1=fadeIn(t,1800,300);
+    // Arrow 1
+    if(t>1600){
+        const fa1=fadeIn(t,1600,300);
         ctx.globalAlpha=fa1.a*0.5;ctx.fillStyle=G400;
         ctx.font='700 16px "Segoe UI",sans-serif';ctx.textAlign='center';
-        ctx.fillText('v',W/2,222+f1.y);
+        ctx.fillText('v',W/2,216);
         ctx.globalAlpha=1;
     }
 
     // STEP 2: Client clicks "Acheter"
-    const f2=fadeUp(t,2200,600);
+    const f2=fadeUp(t,2000,500);
     if(f2.a>0){
         ctx.globalAlpha=f2.a;
-        ctx.beginPath();ctx.arc(30,245+f2.y,14,0,Math.PI*2);ctx.fillStyle=GOLD;ctx.fill();
+        ctx.beginPath();ctx.arc(30,242+f2.y,14,0,Math.PI*2);ctx.fillStyle=GOLD;ctx.fill();
         ctx.fillStyle='#333';ctx.font='800 14px "Segoe UI",sans-serif';ctx.textAlign='center';
-        ctx.fillText('2',30,251+f2.y);
+        ctx.fillText('2',30,248+f2.y);
 
         ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='700 13px "Segoe UI",sans-serif';
-        ctx.fillText('Il clique sur "Acheter"',52,248+f2.y);
+        ctx.fillText('Il clique sur "Acheter"',52,245+f2.y);
 
-        // Animated "Acheter" button with pulse
+        // Acheter button with pulse
         const pulse=0.85+0.15*Math.sin(t/180);
         ctx.globalAlpha=f2.a*pulse;
-        ctx.save();
-        ctx.shadowColor='rgba(76,175,80,0.35)';ctx.shadowBlur=12;
-        roundRect(70,268+f2.y,W-140,42,21,G800);
-        ctx.restore();
-        ctx.globalAlpha=f2.a*pulse;
+        roundRect(60,266+f2.y,W-120,42,21,G800);
         ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';ctx.textAlign='center';
-        ctx.fillText('Acheter',W/2,294+f2.y);
+        ctx.fillText('Acheter',W/2,292+f2.y);
         ctx.globalAlpha=1;
     }
 
-    // Arrow down
-    if(t>3500){
-        const fa2=fadeIn(t,3500,300);
+    // Arrow 2
+    if(t>3200){
+        const fa2=fadeIn(t,3200,300);
         ctx.globalAlpha=fa2.a*0.5;ctx.fillStyle=WA_GREEN;
         ctx.font='700 16px "Segoe UI",sans-serif';ctx.textAlign='center';
-        ctx.fillText('v',W/2,328+f2.y);
+        ctx.fillText('v',W/2,326);
         ctx.globalAlpha=1;
     }
 
     // STEP 3: WhatsApp opens with YOUR message
-    const f3=fadeUp(t,4000,700);
+    const f3=fadeUp(t,3800,600);
     if(f3.a>0){
         ctx.globalAlpha=f3.a;
-        ctx.beginPath();ctx.arc(30,358+f3.y,14,0,Math.PI*2);ctx.fillStyle=WA_GREEN;ctx.fill();
+        ctx.beginPath();ctx.arc(30,355+f3.y,14,0,Math.PI*2);ctx.fillStyle=WA_GREEN;ctx.fill();
         ctx.fillStyle='#fff';ctx.font='800 14px "Segoe UI",sans-serif';ctx.textAlign='center';
-        ctx.fillText('3',30,364+f3.y);
+        ctx.fillText('3',30,361+f3.y);
 
         ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='700 13px "Segoe UI",sans-serif';
-        ctx.fillText('WhatsApp s\'ouvre directement !',52,361+f3.y);
+        ctx.fillText('WhatsApp s\'ouvre directement !',52,358+f3.y);
 
         // WhatsApp chat mockup
-        roundRect(25,380+f3.y,W-50,150,16,WA_DARK);
-        // Header
-        roundRect(25,380+f3.y,W-50,36,16,WA_DARK,'rgba(255,255,255,0.1)');
-        ctx.beginPath();ctx.arc(45,398+f3.y,10,0,Math.PI*2);ctx.fillStyle=WA_GREEN;ctx.fill();
+        const waY=378+f3.y;
+        roundRect(25,waY,W-50,160,16,WA_DARK);
+        // Header bar
+        roundRect(25,waY,W-50,36,16,WA_DARK,'rgba(255,255,255,0.1)');
+        ctx.beginPath();ctx.arc(45,waY+18,10,0,Math.PI*2);ctx.fillStyle=WA_GREEN;ctx.fill();
         ctx.fillStyle='#fff';ctx.font='600 11px "Segoe UI",sans-serif';ctx.textAlign='left';
-        ctx.fillText('Tshoku Business',62,402+f3.y);
+        ctx.fillText('Tshoku Business',62,waY+22);
         ctx.fillStyle='rgba(255,255,255,0.5)';ctx.font='400 9px "Segoe UI",sans-serif';
-        ctx.fillText('en ligne',62,415+f3.y);
+        ctx.fillText('en ligne',62,waY+34);
 
-        // Chat bubble (green = your prescribed message)
-        if(t>5500){
-            const fmsg=fadeUp(t,5500,500);
+        // Chat bubble with the prescribed message
+        if(t>5800){
+            const fmsg=fadeUp(t,5800,500);
             ctx.globalAlpha=f3.a*fmsg.a;
-            roundRect(40,430+f3.y+fmsg.y,W-90,70,12,WA_LIGHT);
+            roundRect(35,waY+44+fmsg.y,W-80,75,12,WA_LIGHT);
             ctx.fillStyle='#222';ctx.font='400 11px "Segoe UI",sans-serif';ctx.textAlign='left';
-            wrapText('Bonjour ! Je suis interesse par "2 Drap + 4 Oreiller a 35.000 FC". Est-ce toujours disponible ?',50,444+f3.y+fmsg.y,W-120,15);
+            wrapText('Bonjour ! Je suis interesse par "2 Drap + 4 Oreiller a 35.000 FC". Est-ce disponible ?',45,waY+58+fmsg.y,W-110,15);
+            ctx.globalAlpha=f3.a;
         }
 
-        // Label
-        if(t>6500){
-            const flbl=fadeUp(t,6500,400);
+        // Annotation label below WhatsApp
+        if(t>7200){
+            const flbl=fadeUp(t,7200,400);
             ctx.globalAlpha=f3.a*flbl.a;
-            roundRect(25,535+f3.y+flbl.y,W-50,40,12,GOLD);
+            roundRect(20,waY+170+flbl.y,W-40,45,12,GOLD);
             ctx.fillStyle='#222';ctx.font='700 12px "Segoe UI",sans-serif';ctx.textAlign='center';
-            ctx.fillText('C\'est le message que VOUS avez',W/2,548+f3.y+flbl.y);
-            ctx.fillText('prescrit dans le formulaire !',W/2,564+f3.y+flbl.y);
+            ctx.fillText('C\'est le message que VOUS avez',W/2,waY+185+flbl.y);
+            ctx.fillText('prescrit dans le formulaire !',W/2,waY+202+flbl.y);
         }
     }
 
+    ctx.restore(); // end scrollable content
     ctx.globalAlpha=1;
-    }catch(e){console.error('S4 error:',e);ctx.globalAlpha=1;}
 }
 
 // ============================================================
