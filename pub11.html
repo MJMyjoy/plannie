@@ -118,14 +118,20 @@ function drawImgCoverClipped(img,x,y,w,h,r){
 }
 
 // ── Audio (Web Audio API) ──
-let audioCtx=null;
+let audioCtx=null,masterGain=null,audioDest=null;
+function initAudio(rec){
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=audioCtx.createGain();masterGain.gain.value=0.8;
+    masterGain.connect(audioCtx.destination);
+    if(rec){audioDest=audioCtx.createMediaStreamDestination();masterGain.connect(audioDest)}
+}
 function playTone(freq,dur,vol=0.08,type='sine'){
     if(!audioCtx)return;
     const o=audioCtx.createOscillator(),g=audioCtx.createGain();
     o.type=type;o.frequency.value=freq;
     g.gain.setValueAtTime(vol,audioCtx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
-    o.connect(g);g.connect(audioCtx.destination);
+    o.connect(g);g.connect(masterGain);
     o.start();o.stop(audioCtx.currentTime+dur);
 }
 function sfxWhoosh(){playTone(300,.15,.06,'sawtooth');setTimeout(()=>playTone(500,.1,.04,'sine'),50)}
@@ -688,7 +694,6 @@ function drawS7(t){
 // ============================================================
 // RENDER ENGINE
 // ============================================================
-let recording=false,mediaRec=null,chunks=[];
 
 function renderFrame(timeMs){
     for(const s of scenes){
@@ -699,83 +704,40 @@ function renderFrame(timeMs){
     }
 }
 
+let isRunning=false;
 function runAd(download){
-    const btnP=document.getElementById('btnPlay'),btnD=document.getElementById('btnDl');
+    if(isRunning)return;
+    isRunning=true;
+    const btnP=document.getElementById('btnPlay'),btnD=document.getElementById('btnDl'),st=document.getElementById('status');
     btnP.disabled=true;btnD.disabled=true;
 
-    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    initAudio(download);
+    let recorder,chunks=[];
 
     if(download){
-        // Record to video — try multiple codecs for compatibility
-        const stream=cv.captureStream(FPS);
-        // Try adding audio track safely (optional, won't break if unavailable)
-        try{
-            const dest=audioCtx.createMediaStreamDestination();
-            const aTracks=dest.stream.getAudioTracks();
-            if(aTracks.length>0) stream.addTrack(aTracks[0]);
-        }catch(e){console.warn('Audio track skipped:',e)}
-
-        // Find a supported MIME type
-        const mimeOptions=['video/webm;codecs=vp8,opus','video/webm;codecs=vp8','video/webm;codecs=vp9','video/webm',''];
-        let chosenMime='';
-        for(const m of mimeOptions){
-            if(!m||MediaRecorder.isTypeSupported(m)){chosenMime=m;break}
-        }
-        const recOpts={videoBitsPerSecond:2500000};
-        if(chosenMime) recOpts.mimeType=chosenMime;
-
-        try{
-            mediaRec=new MediaRecorder(stream,recOpts);
-        }catch(e){
-            // Fallback: no options
-            mediaRec=new MediaRecorder(stream);
-        }
-        chunks=[];
-        mediaRec.ondataavailable=e=>{if(e.data&&e.data.size>0)chunks.push(e.data)};
-        mediaRec.onstop=()=>{
-            const mimeUsed=mediaRec.mimeType||'video/webm';
-            const blob=new Blob(chunks,{type:mimeUsed});
-            const ext=mimeUsed.includes('mp4')?'mp4':'webm';
-            const url=URL.createObjectURL(blob);
-            const a=document.createElement('a');
-            a.href=url;
-            a.download='Plannie_Business_Pub11_Boutiques.'+ext;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            // Delay revoking so download can start
-            setTimeout(()=>URL.revokeObjectURL(url),5000);
-            document.getElementById('status').textContent='Vidéo téléchargée !';
-            btnP.disabled=false;btnD.disabled=false;
-        };
-        mediaRec.onerror=e=>{
-            console.error('MediaRecorder error:',e);
-            document.getElementById('status').textContent='Erreur enregistrement: '+e.error;
-            btnP.disabled=false;btnD.disabled=false;
-        };
-        mediaRec.start(1000); // collect data every 1s for reliability
-        document.getElementById('status').textContent='Enregistrement en cours...';
-    }
+        st.textContent='Enregistrement en cours... ~1 min 10 sec';
+        const vs=cv.captureStream(FPS);
+        if(audioDest)audioDest.stream.getAudioTracks().forEach(t=>vs.addTrack(t));
+        const mt=MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')?'video/webm;codecs=vp9,opus':MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')?'video/webm;codecs=vp8,opus':'video/webm';
+        recorder=new MediaRecorder(vs,{mimeType:mt,videoBitsPerSecond:3000000});
+        recorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+        recorder.onstop=()=>{
+            const blob=new Blob(chunks,{type:'video/webm'});const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');a.href=url;a.download='Plannie_Business_Pub11_Boutiques.webm';
+            document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);
+            st.textContent='Video telechargee !';
+        };recorder.start();
+    }else{st.textContent='Lecture en cours...'}
 
     let startTime=null;
-    function animate(ts){
+    function loop(ts){
         if(!startTime)startTime=ts;
         const elapsed=ts-startTime;
-        if(elapsed>=DURATION){
-            renderFrame(DURATION-1);
-            if(download&&mediaRec){mediaRec.stop()}
-            else{btnP.disabled=false;btnD.disabled=false}
-            document.getElementById('status').textContent=download?'Finalisation...':'Terminé !';
-            return;
-        }
-        renderFrame(elapsed);
-        if(download){
-            const pct=Math.round(elapsed/DURATION*100);
-            document.getElementById('status').textContent='Enregistrement... '+pct+'%';
-        }
-        requestAnimationFrame(animate);
+        renderFrame(Math.min(elapsed,DURATION-1));
+        if(elapsed<DURATION+500){requestAnimationFrame(loop)}
+        else{if(recorder&&recorder.state==='recording')recorder.stop();isRunning=false;btnP.disabled=false;btnD.disabled=false;if(!download)st.textContent='Lecture terminee'}
     }
-    requestAnimationFrame(animate);
+    requestAnimationFrame(loop);
 }
 </script>
 </body>
