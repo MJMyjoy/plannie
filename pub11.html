@@ -706,23 +706,54 @@ function runAd(download){
     audioCtx=new(window.AudioContext||window.webkitAudioContext)();
 
     if(download){
-        // Record to video
+        // Record to video — try multiple codecs for compatibility
         const stream=cv.captureStream(FPS);
-        const dest=audioCtx.createMediaStreamDestination();
-        stream.addTrack(dest.stream.getAudioTracks()[0]||stream.getAudioTracks()[0]);
-        mediaRec=new MediaRecorder(stream,{mimeType:'video/webm;codecs=vp9',videoBitsPerSecond:2500000});
+        // Try adding audio track safely (optional, won't break if unavailable)
+        try{
+            const dest=audioCtx.createMediaStreamDestination();
+            const aTracks=dest.stream.getAudioTracks();
+            if(aTracks.length>0) stream.addTrack(aTracks[0]);
+        }catch(e){console.warn('Audio track skipped:',e)}
+
+        // Find a supported MIME type
+        const mimeOptions=['video/webm;codecs=vp8,opus','video/webm;codecs=vp8','video/webm;codecs=vp9','video/webm',''];
+        let chosenMime='';
+        for(const m of mimeOptions){
+            if(!m||MediaRecorder.isTypeSupported(m)){chosenMime=m;break}
+        }
+        const recOpts={videoBitsPerSecond:2500000};
+        if(chosenMime) recOpts.mimeType=chosenMime;
+
+        try{
+            mediaRec=new MediaRecorder(stream,recOpts);
+        }catch(e){
+            // Fallback: no options
+            mediaRec=new MediaRecorder(stream);
+        }
         chunks=[];
-        mediaRec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+        mediaRec.ondataavailable=e=>{if(e.data&&e.data.size>0)chunks.push(e.data)};
         mediaRec.onstop=()=>{
-            const blob=new Blob(chunks,{type:'video/webm'});
+            const mimeUsed=mediaRec.mimeType||'video/webm';
+            const blob=new Blob(chunks,{type:mimeUsed});
+            const ext=mimeUsed.includes('mp4')?'mp4':'webm';
             const url=URL.createObjectURL(blob);
             const a=document.createElement('a');
-            a.href=url;a.download='Plannie_Business_Pub11_Boutiques.webm';a.click();
-            URL.revokeObjectURL(url);
+            a.href=url;
+            a.download='Plannie_Business_Pub11_Boutiques.'+ext;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            // Delay revoking so download can start
+            setTimeout(()=>URL.revokeObjectURL(url),5000);
             document.getElementById('status').textContent='Vidéo téléchargée !';
             btnP.disabled=false;btnD.disabled=false;
         };
-        mediaRec.start();
+        mediaRec.onerror=e=>{
+            console.error('MediaRecorder error:',e);
+            document.getElementById('status').textContent='Erreur enregistrement: '+e.error;
+            btnP.disabled=false;btnD.disabled=false;
+        };
+        mediaRec.start(1000); // collect data every 1s for reliability
         document.getElementById('status').textContent='Enregistrement en cours...';
     }
 
