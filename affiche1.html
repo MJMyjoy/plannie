@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plannie Business – Affiche publicitaire</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;gap:16px;padding:20px}
+canvas{border-radius:12px;box-shadow:0 0 60px rgba(76,175,80,.2);max-width:95vw;max-height:90vh}
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.btn{padding:14px 32px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;display:inline-flex;align-items:center;gap:8px}
+.btn-main{background:#2E7D32;color:#fff}
+.btn-main:hover{background:#388E3C;transform:scale(1.02)}
+.btn-alt{background:#fff;color:#2E7D32;border:2px solid #2E7D32}
+.btn-alt:hover{background:#E8F5E9}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.status{color:rgba(255,255,255,.6);font-size:13px;min-height:20px;text-align:center;max-width:600px}
+.status a{color:#66BB6A}
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1528"></canvas>
+<div class="controls">
+    <button class="btn btn-main" id="btnDl" onclick="downloadPoster()">📥 Télécharger l'affiche (PNG)</button>
+</div>
+<div class="status" id="status"></div>
+
+<script>
+// ============================================================
+// Plannie Business – Affiche v3
+// A4 ratio (1:1.414) + fond perdu visuel
+// ============================================================
+
+const G900='#1B5E20',G800='#2E7D32',G500='#4CAF50',
+      G400='#66BB6A',G300='#81C784',G200='#A5D6A7';
+const GOLD='#F9A825',WA_GREEN='#25D366',DARK_BG='#0D1F12';
+
+// ── Load images as base64 to avoid CORS taint ──
+const mainImg=new Image();
+const logoImg=new Image();
+let imgReady=0, imagesLoaded=false;
+
+function onImgReady(){
+    imgReady++;
+    if(imgReady>=2){imagesLoaded=true; drawPreview()}
+}
+
+// Convert images to base64 on load to prevent canvas taint
+function loadImageSafe(img, src){
+    const temp=new Image();
+    temp.onload=function(){
+        // Draw to temp canvas to get base64
+        const tc=document.createElement('canvas');
+        tc.width=temp.naturalWidth; tc.height=temp.naturalHeight;
+        tc.getContext('2d').drawImage(temp,0,0);
+        try{
+            const dataUrl=tc.toDataURL('image/png');
+            img.src=dataUrl;
+            img.onload=onImgReady;
+            img.onerror=onImgReady;
+        }catch(e){
+            // CORS blocked even temp canvas, use original
+            img.src=src;
+            img.onload=onImgReady;
+            img.onerror=onImgReady;
+        }
+    };
+    temp.onerror=function(){
+        img.src=src;
+        img.onload=onImgReady;
+        img.onerror=onImgReady;
+    };
+    temp.src=src;
+}
+
+loadImageSafe(mainImg, 'img/file_publicite.png');
+loadImageSafe(logoImg, 'img/plannie_logo_1792797585289.jpg');
+
+// ── Drawing helpers ──
+function rr(c,x,y,w,h,r,fill,stroke,lw){
+    c.beginPath();
+    c.moveTo(x+r,y);c.lineTo(x+w-r,y);c.quadraticCurveTo(x+w,y,x+w,y+r);
+    c.lineTo(x+w,y+h-r);c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    c.lineTo(x+r,y+h);c.quadraticCurveTo(x,y+h,x,y+h-r);
+    c.lineTo(x,y+r);c.quadraticCurveTo(x,y,x+r,y);c.closePath();
+    if(fill){c.fillStyle=fill;c.fill()}
+    if(stroke){c.strokeStyle=stroke;c.lineWidth=lw||2;c.stroke()}
+}
+
+function wt(c,text,x,y,maxW,lh){
+    const words=text.split(' ');let line='';
+    for(const w of words){
+        const t=line+w+' ';
+        if(c.measureText(t).width>maxW&&line!==''){
+            c.fillText(line.trim(),x,y);y+=lh;line=w+' ';
+        }else{line=t}
+    }
+    c.fillText(line.trim(),x,y);return y+lh;
+}
+
+function coverImg(c,img,x,y,w,h){
+    if(!img||!img.complete||!img.naturalWidth)return;
+    const ar=img.naturalWidth/img.naturalHeight,cr=w/h;
+    let sw,sh;
+    if(ar>cr){sh=h;sw=sh*ar}else{sw=w;sh=sw/ar}
+    c.drawImage(img,x+(w-sw)/2,y+(h-sh)/2,sw,sh);
+}
+
+function star(c,cx,cy,ro,ri,n,fill){
+    c.beginPath();
+    for(let i=0;i<n*2;i++){
+        const r=i%2===0?ro:ri;
+        const a=Math.PI*i/n-Math.PI/2;
+        if(!i)c.moveTo(cx+r*Math.cos(a),cy+r*Math.sin(a));
+        else c.lineTo(cx+r*Math.cos(a),cy+r*Math.sin(a));
+    }
+    c.closePath();c.fillStyle=fill;c.fill();
+}
+
+// ── Icon functions ──
+function iClock(c,cx,cy,r,col){
+    c.strokeStyle=col;c.lineWidth=Math.max(2,r/7);
+    c.beginPath();c.arc(cx,cy,r,0,Math.PI*2);c.stroke();
+    const ha=-Math.PI/3;
+    c.beginPath();c.moveTo(cx,cy);c.lineTo(cx+r*.5*Math.cos(ha),cy+r*.5*Math.sin(ha));c.stroke();
+    c.beginPath();c.moveTo(cx,cy);c.lineTo(cx+r*.7,cy);c.lineWidth=Math.max(1,r/9);c.stroke();
+    c.beginPath();c.arc(cx,cy,r/7,0,Math.PI*2);c.fillStyle=col;c.fill();
+    const bs=r*.55;
+    rr(c,cx+r*.55,cy-r-bs*.6,bs*1.7,bs,bs/3,GOLD);
+    c.fillStyle='#222';c.font=`800 ${Math.round(bs*.75)}px "Segoe UI",sans-serif`;c.textAlign='center';
+    c.fillText('5J',cx+r*.55+bs*.85,cy-r-bs*.6+bs*.7);
+}
+
+function iGlobe(c,cx,cy,r,col){
+    c.strokeStyle=col;c.lineWidth=Math.max(2,r/7);
+    c.beginPath();c.arc(cx,cy,r,0,Math.PI*2);c.stroke();
+    c.beginPath();c.moveTo(cx-r,cy);c.lineTo(cx+r,cy);c.stroke();
+    c.beginPath();c.ellipse(cx,cy,r*.45,r,0,0,Math.PI*2);c.stroke();
+    c.globalAlpha=.4;
+    for(let i=0;i<3;i++){const rr2=r+r*.3+i*r*.22;c.beginPath();c.arc(cx,cy-r*.4,rr2,3.84,5.59);c.stroke()}
+    c.globalAlpha=1;
+}
+
+function iBasket(c,cx,cy,r,col){
+    c.fillStyle=col+'33';c.strokeStyle=col;c.lineWidth=Math.max(2,r/7);
+    c.beginPath();c.moveTo(cx-r,cy-r*.3);c.lineTo(cx-r+r*.3,cy+r);c.lineTo(cx+r-r*.3,cy+r);c.lineTo(cx+r,cy-r*.3);c.closePath();c.fill();c.stroke();
+    c.beginPath();c.arc(cx,cy-r*.5,r*.4,Math.PI,0);c.stroke();
+    for(const o of [-r*.3,0,r*.3]){c.beginPath();c.arc(cx+o,cy+r*.15,r*.18,0,Math.PI*2);c.fillStyle=col;c.fill()}
+    const bs=r*.55;
+    rr(c,cx+r*.55,cy-r-bs*.6,bs*1.9,bs,bs/3,G400);
+    c.fillStyle='#fff';c.font=`800 ${Math.round(bs*.75)}px "Segoe UI",sans-serif`;c.textAlign='center';
+    c.fillText('5x',cx+r*.55+bs*.95,cy-r-bs*.6+bs*.7);
+}
+
+function iLink(c,cx,cy,r,col){
+    c.strokeStyle=col;c.lineWidth=Math.max(2,r/5);
+    c.beginPath();c.arc(cx-r*.2,cy,r*.45,Math.PI*.5,Math.PI*1.5);c.stroke();
+    c.beginPath();c.moveTo(cx-r*.2,cy-r*.45);c.lineTo(cx+r*.1,cy-r*.45);c.stroke();
+    c.beginPath();c.moveTo(cx-r*.2,cy+r*.45);c.lineTo(cx+r*.1,cy+r*.45);c.stroke();
+    c.beginPath();c.arc(cx+r*.2,cy,r*.45,Math.PI*1.5,Math.PI*.5);c.stroke();
+    c.beginPath();c.moveTo(cx-r*.1,cy-r*.45);c.lineTo(cx+r*.2,cy-r*.45);c.stroke();
+    c.beginPath();c.moveTo(cx-r*.1,cy+r*.45);c.lineTo(cx+r*.2,cy+r*.45);c.stroke();
+    c.fillStyle=col;c.beginPath();c.moveTo(cx+r*.8,cy-r*.25);c.lineTo(cx+r*1.1,cy);c.lineTo(cx+r*.8,cy+r*.25);c.closePath();c.fill();
+}
+
+function iForm(c,cx,cy,r,col){
+    c.strokeStyle=col;c.lineWidth=Math.max(2,r/6);
+    rr(c,cx-r*.55,cy-r,r*1.1,r*2,r*.18,null,col,Math.max(2,r/6));
+    rr(c,cx-r*.3,cy-r-r*.18,r*.6,r*.28,r*.1,col);
+    c.lineWidth=Math.max(1,r/9);
+    for(let i=0;i<4;i++){const yy=cy-r+r*.5+i*r*.38;const lw=i<3?r*.65:r*.38;c.beginPath();c.moveTo(cx-r*.35,yy);c.lineTo(cx-r*.35+lw,yy);c.stroke()}
+    c.strokeStyle=GOLD;c.lineWidth=Math.max(2,r/5);
+    c.beginPath();c.moveTo(cx+r*.05,cy+r*.45);c.lineTo(cx+r*.2,cy+r*.65);c.lineTo(cx+r*.5,cy+r*.15);c.stroke();
+}
+
+function iWA(c,cx,cy,r){
+    c.beginPath();c.arc(cx,cy,r,0,Math.PI*2);c.fillStyle=WA_GREEN;c.fill();
+    rr(c,cx-r*.35,cy-r*.5,r*.7,r,r*.17,'#fff');
+    rr(c,cx-r*.25,cy-r*.35,r*.5,r*.7,r*.12,WA_GREEN);
+    rr(c,cx-r*.2,cy+r*.1,r*.4,r*.22,r*.08,'#fff');
+}
+
+// ============================================================
+// MAIN DRAW FUNCTION (works at any scale)
+// ============================================================
+function drawPoster(c, W, H){
+    const S = W / 1080;  // scale factor relative to 1080 base
+
+    // ── BG ──
+    c.fillStyle=DARK_BG;c.fillRect(0,0,W,H);
+
+    // ── MAIN IMAGE (extends to very top for bleed) ──
+    const imgH=Math.round(H*0.40);
+    c.save();c.beginPath();c.rect(0,0,W,imgH);c.clip();
+    coverImg(c,mainImg,0,0,W,imgH);
+    c.restore();
+
+    // Bottom fade
+    const gH=Math.round(imgH*0.42);
+    const g1=c.createLinearGradient(0,imgH-gH,0,imgH);
+    g1.addColorStop(0,'rgba(13,31,18,0)');g1.addColorStop(1,'rgba(13,31,18,0.97)');
+    c.fillStyle=g1;c.fillRect(0,imgH-gH,W,gH);
+
+    // Top vignette
+    const g2=c.createLinearGradient(0,0,0,imgH*.18);
+    g2.addColorStop(0,'rgba(0,20,0,0.3)');g2.addColorStop(1,'rgba(0,20,0,0)');
+    c.fillStyle=g2;c.fillRect(0,0,W,imgH*.18);
+
+    // ── TRANSPARENT HEADER ──
+    const hdrH=Math.round(H*0.058);
+    c.fillStyle='rgba(46,125,50,0.3)';c.fillRect(0,0,W,hdrH);
+
+    // Logo
+    const lS=Math.round(60*S);
+    const lCx=Math.round(70*S), lCy=Math.round(hdrH*0.5);
+    if(logoImg.complete&&logoImg.naturalWidth){
+        c.save();c.beginPath();c.arc(lCx,lCy,lS/2,0,Math.PI*2);c.clip();
+        c.drawImage(logoImg,lCx-lS/2,lCy-lS/2,lS,lS);c.restore();
+        c.beginPath();c.arc(lCx,lCy,lS/2+1,0,Math.PI*2);c.strokeStyle='rgba(255,255,255,.3)';c.lineWidth=Math.max(1,2*S);c.stroke();
+    }
+    c.fillStyle='#fff';c.font=`800 ${Math.round(36*S)}px "Segoe UI",sans-serif`;c.textAlign='left';
+    c.fillText('Plannie',lCx+lS/2+Math.round(14*S),lCy-Math.round(8*S));
+    c.fillStyle=GOLD;
+    c.fillText('Business',lCx+lS/2+Math.round(14*S),lCy+Math.round(28*S));
+
+    // ── HEADLINE ──
+    const hdFs=Math.round(48*S);
+    const hdY=imgH-Math.round(120*S);
+    c.font=`900 ${hdFs}px "Segoe UI",sans-serif`;c.textAlign='center';
+    // Shadow
+    c.fillStyle='rgba(0,0,0,.65)';
+    for(const[dx,dy] of [[2,2],[0,2],[2,0]]){
+        c.fillText('Publie tes articles.',W/2+dx*S,hdY+dy*S);
+        c.fillText('Vends plus. Simplement.',W/2+dx*S,hdY+hdFs*1.25+dy*S);
+    }
+    c.fillStyle='#fff';c.fillText('Publie tes articles.',W/2,hdY);
+    c.fillStyle=GOLD;c.fillText('Vends plus. Simplement.',W/2,hdY+hdFs*1.25);
+
+    // ── SUBTITLE ──
+    const stFs=Math.round(24*S);
+    const stY=imgH+Math.round(18*S);
+    c.fillStyle=G300;c.font=`400 ${stFs}px "Segoe UI",sans-serif`;c.textAlign='center';
+    c.fillText('Le site qui met tes produits devant',W/2,stY);
+    c.fillText('les yeux de toute la ville.',W/2,stY+stFs*1.45);
+
+    // ── SECTION TITLE ──
+    const scFs=Math.round(24*S);
+    const scY=stY+stFs*1.45+Math.round(30*S);
+    const scW=Math.round(185*S);
+    rr(c,W/2-scW,scY,scW*2,Math.round(48*S),Math.round(24*S),G800,G400,Math.max(1,2*S));
+    c.fillStyle='#fff';c.font=`700 ${scFs}px "Segoe UI",sans-serif`;c.textAlign='center';
+    c.fillText('Pourquoi Plannie Business ?',W/2,scY+Math.round(32*S));
+
+    // ── CARDS ──
+    const advs=[
+        {ic:'clock', t:'5 jours au lieu de 24h',
+         d:'Ta Story WhatsApp dispara\u00eet en 24h. Ton article sur Plannie reste visible pendant 5 jours complets !', col:GOLD},
+        {ic:'globe', t:'Au-del\u00e0 de tes contacts',
+         d:"Pas besoin d\u2019avoir le num\u00e9ro de quelqu\u2019un. Ton article est expos\u00e9 \u00e0 TOUS les visiteurs du site.", col:'#42A5F5'},
+        {ic:'basket', t:"Jusqu\u2019\u00e0 5 articles publi\u00e9s",
+         d:'Publie 5 articles diff\u00e9rents avec leurs prix, photos et lieux de livraison !', col:G400},
+        {ic:'link', t:'Un lien qui voyage',
+         d:'Un seul lien partageable fait voyager ton article dans toute la ville.', col:'#AB47BC'},
+        {ic:'form', t:'Formulaire simple et complet',
+         d:"Facile \u00e0 remplir, bien d\u00e9taill\u00e9. Ton article para\u00eet pro d\u00e8s sa publication.", col:'#FF7043'},
+    ];
+
+    const cSY=scY+Math.round(65*S);
+    const cH=Math.round(88*S), cG=Math.round(10*S);
+    const cW=W-Math.round(80*S), cX=Math.round(40*S);
+    const icR=Math.round(20*S);
+    const icCx=cX+Math.round(48*S);
+    const tLx=cX+Math.round(88*S);
+
+    advs.forEach((a,i)=>{
+        const y=cSY+i*(cH+cG);
+        rr(c,cX,y,cW,cH,Math.round(16*S),'rgba(22,42,28,.95)','rgba(50,75,55,.7)',Math.max(1,S));
+        rr(c,cX,y+cH*.16,Math.round(5*S),cH*.68,3,a.col);
+        // Icon bg
+        c.beginPath();c.arc(icCx,y+cH/2,icR+Math.round(3*S),0,Math.PI*2);c.fillStyle='rgba(15,35,20,.9)';c.fill();
+        c.strokeStyle=a.col;c.lineWidth=Math.max(1,2*S);c.stroke();
+        // Icon
+        if(a.ic==='clock')iClock(c,icCx,y+cH/2,icR-Math.round(2*S),a.col);
+        else if(a.ic==='globe')iGlobe(c,icCx,y+cH/2,icR-Math.round(2*S),a.col);
+        else if(a.ic==='basket')iBasket(c,icCx,y+cH/2,icR-Math.round(2*S),a.col);
+        else if(a.ic==='link')iLink(c,icCx,y+cH/2,icR-Math.round(2*S),a.col);
+        else if(a.ic==='form')iForm(c,icCx,y+cH/2,icR-Math.round(2*S),a.col);
+        // Title
+        c.fillStyle='#fff';c.font=`700 ${Math.round(23*S)}px "Segoe UI",sans-serif`;c.textAlign='left';
+        c.fillText(a.t,tLx,y+cH*.34);
+        // Desc
+        c.fillStyle='rgba(175,205,180,.8)';c.font=`400 ${Math.round(18*S)}px "Segoe UI",sans-serif`;
+        wt(c,a.d,tLx,y+cH*.58,cW-(tLx-cX)-Math.round(20*S),Math.round(22*S));
+    });
+
+    // ── STARS ──
+    const bY=cSY+5*(cH+cG)+Math.round(8*S);
+    const sR=Math.round(9*S);
+    for(let i=0;i<5;i++) star(c,W/2-sR*8+i*sR*4,bY+sR,sR,sR*.4,5,GOLD);
+    c.fillStyle='rgba(160,180,160,.7)';c.font=`400 ${Math.round(18*S)}px "Segoe UI",sans-serif`;c.textAlign='center';
+    c.fillText('\u00c9toiles, commentaires, contact WhatsApp direct...',W/2,bY+sR*3.8);
+
+    // ── CTA ──
+    const ctFs=Math.round(26*S);
+    const ctY=bY+sR*3.8+Math.round(18*S);
+    const ctH=Math.round(62*S);
+    const ctX=Math.round(130*S);
+    rr(c,ctX+3,ctY+4,W-2*ctX-6,ctH,ctH/2,'rgba(20,20,20,.5)');
+    rr(c,ctX,ctY,W-2*ctX,ctH,ctH/2,'#fff',G500,Math.max(2,2*S));
+    const aX=ctX+Math.round(25*S),aS=Math.round(ctH*.18);
+    c.fillStyle=G800;c.beginPath();c.moveTo(aX,ctY+ctH/2-aS);c.lineTo(aX+aS*1.4,ctY+ctH/2);c.lineTo(aX,ctY+ctH/2+aS);c.closePath();c.fill();
+    c.fillStyle=G800;c.font=`800 ${ctFs}px "Segoe UI",sans-serif`;c.textAlign='center';
+    c.fillText('Publier mon article maintenant',W/2+Math.round(8*S),ctY+ctH*.62);
+
+    // ── FOOTER (extends to bottom for bleed) ──
+    const fY=ctY+ctH+Math.round(22*S);
+    c.fillStyle=G800;c.fillRect(0,fY,W,H-fY);
+    // Deco bar
+    for(let x=0;x<W;x+=Math.max(3,Math.round(4*S))){
+        c.fillStyle=(Math.floor(x/(4*S))%2===0)?G400:G500;
+        c.fillRect(x,fY,Math.max(2,Math.round(2*S)),Math.max(2,Math.round(3*S)));
+    }
+    // Logo
+    const fLS=Math.round(48*S);
+    const fLCy=fY+Math.round(42*S);
+    if(logoImg.complete&&logoImg.naturalWidth){
+        c.save();c.beginPath();c.arc(W/2,fLCy,fLS/2,0,Math.PI*2);c.clip();
+        c.drawImage(logoImg,W/2-fLS/2,fLCy-fLS/2,fLS,fLS);c.restore();
+        c.beginPath();c.arc(W/2,fLCy,fLS/2+1,0,Math.PI*2);c.strokeStyle=G200;c.lineWidth=Math.max(1,2*S);c.stroke();
+    }
+    // URL
+    const uFs=Math.round(24*S);
+    c.fillStyle='#fff';c.font=`700 ${uFs}px "Segoe UI",sans-serif`;c.textAlign='center';
+    c.fillText('plannie.onrender.com',W/2,fLCy+fLS/2+uFs*1.2);
+    c.fillStyle=G200;c.font=`400 ${Math.round(18*S)}px "Segoe UI",sans-serif`;
+    c.fillText('ou tape \u00ab Plannie Business \u00bb sur Google',W/2,fLCy+fLS/2+uFs*1.2+Math.round(26*S));
+    // Phone
+    const phY=fLCy+fLS/2+uFs*1.2+Math.round(55*S);
+    const phFs=Math.round(28*S);
+    iWA(c,W/2-phFs*4,phY,Math.round(12*S));
+    c.fillStyle=GOLD;c.font=`700 ${phFs}px "Segoe UI",sans-serif`;c.textAlign='left';
+    c.fillText('+243 979 508 196',W/2-phFs*3.2,phY+phFs*.35);
+    c.fillStyle='rgba(200,220,200,.7)';c.font=`400 ${Math.round(17*S)}px "Segoe UI",sans-serif`;c.textAlign='center';
+    c.fillText('WhatsApp \u2022 Appel \u2022 \u00c0 tout moment',W/2,phY+phFs*1.1);
+    // Copyright
+    c.fillStyle='rgba(150,180,150,.5)';c.font=`400 ${Math.round(15*S)}px "Segoe UI",sans-serif`;
+    c.fillText('\u00a9 Plannie Business 2026 \u2013 by Havila  \u2022  Lubumbashi, RD Congo',W/2,H-Math.round(12*S));
+}
+
+// ── PREVIEW ──
+function drawPreview(){
+    const cv=document.getElementById('c');
+    const c=cv.getContext('2d');
+    drawPoster(c, cv.width, cv.height);
+    document.getElementById('status').textContent='Affiche g\u00e9n\u00e9r\u00e9e ! Cliquez pour t\u00e9l\u00e9charger.';
+}
+
+// ── DOWNLOAD ──
+function downloadPoster(){
+    const btn=document.getElementById('btnDl');
+    const st=document.getElementById('status');
+    btn.disabled=true;
+    st.textContent='G\u00e9n\u00e9ration HD en cours...';
+
+    setTimeout(()=>{
+        // Create HD canvas (A4 300 DPI + 3mm bleed)
+        const hdW=2550, hdH=3578;
+        const hc=document.createElement('canvas');
+        hc.width=hdW; hc.height=hdH;
+        const hx=hc.getContext('2d');
+
+        drawPoster(hx, hdW, hdH);
+
+        // Try toBlob first (modern browsers)
+        try{
+            // Test if canvas is tainted
+            hc.toDataURL();
+
+            hc.toBlob(function(blob){
+                if(blob){
+                    const u=URL.createObjectURL(blob);
+                    const a=document.createElement('a');
+                    a.href=u; a.download='Plannie_Business_Affiche_A4_HD.png';
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                    setTimeout(()=>URL.revokeObjectURL(u),5000);
+                    st.textContent='T\u00e9l\u00e9charg\u00e9 ! ('+hdW+'\u00d7'+hdH+'px, A4 300 DPI)';
+                }else{
+                    fallbackDownload(hc,st);
+                }
+                btn.disabled=false;
+            },'image/png');
+        }catch(e){
+            // Canvas tainted (CORS) — try dataURL on preview canvas
+            try{
+                const pcv=document.getElementById('c');
+                const url=pcv.toDataURL('image/png');
+                const a=document.createElement('a');
+                a.href=url; a.download='Plannie_Business_Affiche.png';
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                st.innerHTML='T\u00e9l\u00e9charg\u00e9 (aper\u00e7u). Pour la version HD, ouvrez cette page via un serveur local ou t\u00e9l\u00e9chargez <a href="Plannie_Business_Affiche.png" download>le fichier PNG HD directement</a>.';
+            }catch(e2){
+                // Everything blocked — direct link
+                st.innerHTML='Le navigateur bloque l\'export en mode fichier local.<br>T\u00e9l\u00e9chargez directement : <a href="Plannie_Business_Affiche.png" download style="color:#66BB6A;font-weight:700">Plannie_Business_Affiche.png</a>';
+            }
+            btn.disabled=false;
+        }
+    }, 50);
+}
+
+function fallbackDownload(hc,st){
+    try{
+        const url=hc.toDataURL('image/png');
+        const a=document.createElement('a');
+        a.href=url; a.download='Plannie_Business_Affiche_A4_HD.png';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        st.textContent='T\u00e9l\u00e9charg\u00e9 !';
+    }catch(e){
+        st.innerHTML='T\u00e9l\u00e9chargez directement : <a href="Plannie_Business_Affiche.png" download style="color:#66BB6A;font-weight:700">Plannie_Business_Affiche.png</a>';
+    }
+}
+
+// Start
+setTimeout(()=>{if(!imagesLoaded)drawPreview()},3000);
+</script>
+</body>
+</html>
