@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plannie Business – Pub 12 : Affiche animée</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;gap:16px}
+canvas{border-radius:16px;box-shadow:0 0 60px rgba(76,175,80,.25);max-width:95vw;max-height:80vh}
+@media(max-width:400px){canvas{border-radius:0}}
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.btn{padding:14px 28px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;display:flex;align-items:center;gap:8px}
+.btn-play{background:#2E7D32;color:#fff}.btn-play:hover{background:#388E3C}
+.btn-dl{background:#fff;color:#2E7D32}.btn-dl:hover{background:#E8F5E9}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.status{color:rgba(255,255,255,.5);font-size:13px;min-height:18px}
+</style>
+</head>
+<body>
+<canvas id="c" width="360" height="640"></canvas>
+<div class="controls">
+    <button class="btn btn-play" id="btnPlay" onclick="runAd(false)">▶ Lancer la pub</button>
+    <button class="btn btn-dl" id="btnDl" onclick="runAd(true)">📥 Télécharger la vidéo</button>
+</div>
+<div class="status" id="status"></div>
+
+<script>
+// ============================================================
+//  Plannie Business — Pub 12 : Affiche animée
+//  Inspirée de affiche1.html — animation cinématique
+// ============================================================
+const W=360, H=640, FPS=30, DURATION=62000;
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+
+const G900='#1B5E20',G800='#2E7D32',G500='#4CAF50',G400='#66BB6A',G300='#81C784',G200='#A5D6A7';
+const GOLD='#F9A825',WA_GREEN='#25D366',DARK_BG='#0D1F12';
+const SITE='plannie.onrender.com';
+const PHONE='+243 979 508 196';
+
+// ── Images ──
+const imgFiles={
+    main:'img/file_publicite.png',
+    logo:'img/plannie_logo_1792797585289.jpg'
+};
+const imgs={};let imgsLoaded=0,imgsTotal=Object.keys(imgFiles).length;
+for(const[k,src] of Object.entries(imgFiles)){
+    imgs[k]=new Image();imgs[k].onload=()=>imgsLoaded++;imgs[k].onerror=()=>imgsLoaded++;imgs[k].src=src;
+}
+
+// ── Audio ──
+let audioCtx=null,masterGain=null,audioDest=null;
+function initAudio(rec){
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=audioCtx.createGain();masterGain.gain.value=0.7;
+    masterGain.connect(audioCtx.destination);
+    if(rec){audioDest=audioCtx.createMediaStreamDestination();masterGain.connect(audioDest)}
+}
+function playTone(f,dur,vol=0.08,type='sine'){
+    if(!audioCtx)return;const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.type=type;o.frequency.value=f;
+    g.gain.setValueAtTime(vol,audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
+    o.connect(g);g.connect(masterGain);o.start();o.stop(audioCtx.currentTime+dur);
+}
+function sfxWhoosh(){playTone(300,.18,.05,'sawtooth');setTimeout(()=>playTone(600,.12,.04),50)}
+function sfxPop(){playTone(900,.07,.06);playTone(1300,.05,.04)}
+function sfxSuccess(){playTone(523,.12,.06);setTimeout(()=>playTone(659,.12,.06),100);setTimeout(()=>playTone(784,.12,.06),200);setTimeout(()=>playTone(1047,.2,.07),300)}
+function sfxChime(){playTone(880,.12,.05);setTimeout(()=>playTone(1100,.12,.05),100);setTimeout(()=>playTone(1320,.18,.06),200)}
+function sfxDing(){playTone(1200,.15,.06)}
+function sfxStar(){playTone(1000+Math.random()*500,.1,.04)}
+
+// ── Helpers ──
+function easeOut(t){return 1-Math.pow(1-t,3)}
+function easeInOut(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function lerp(a,b,t){return a+(b-a)*clamp(t,0,1)}
+function fadeUp(t,delay,dur){const p=clamp((t-delay)/dur,0,1);return{y:lerp(40,0,easeOut(p)),a:lerp(0,1,easeOut(p))}}
+
+function coverImg(img,x,y,w,h){
+    if(!img||!img.complete||!img.naturalWidth)return;
+    const ar=img.naturalWidth/img.naturalHeight,cr=w/h;
+    let sw,sh;if(ar>cr){sh=h;sw=sh*ar}else{sw=w;sh=sw/ar}
+    ctx.drawImage(img,x+(w-sw)/2,y+(h-sh)/2,sw,sh);
+}
+
+function rr(x,y,w,h,r,fill,stroke,lw){
+    ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);
+    ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+    if(fill){ctx.fillStyle=fill;ctx.fill()}
+    if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw||2;ctx.stroke()}
+}
+
+function wrapText(text,x,y,maxW,lh){
+    const words=text.split(' ');let line='';
+    for(const w of words){const t=line+w+' ';if(ctx.measureText(t).width>maxW&&line!==''){ctx.fillText(line.trim(),x,y);y+=lh;line=w+' '}else{line=t}}
+    ctx.fillText(line.trim(),x,y);return y+lh;
+}
+
+function star5(cx,cy,ro,ri,fill){
+    ctx.beginPath();for(let i=0;i<10;i++){const r=i%2===0?ro:ri;const a=Math.PI*i/5-Math.PI/2;if(!i)ctx.moveTo(cx+r*Math.cos(a),cy+r*Math.sin(a));else ctx.lineTo(cx+r*Math.cos(a),cy+r*Math.sin(a))}
+    ctx.closePath();ctx.fillStyle=fill;ctx.fill();
+}
+
+function drawLogoCircle(x,y,r){
+    if(!imgs.logo||!imgs.logo.complete)return;
+    ctx.save();ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.clip();
+    ctx.drawImage(imgs.logo,x-r,y-r,r*2,r*2);ctx.restore();
+    ctx.beginPath();ctx.arc(x,y,r+1,0,Math.PI*2);ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=1.5;ctx.stroke();
+}
+
+// ── Icon helpers (from affiche) ──
+function iClock(cx,cy,r,col){
+    ctx.strokeStyle=col;ctx.lineWidth=Math.max(1.5,r/7);
+    ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+r*.5*Math.cos(-Math.PI/3),cy+r*.5*Math.sin(-Math.PI/3));ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+r*.7,cy);ctx.lineWidth=Math.max(1,r/9);ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy,r/7,0,Math.PI*2);ctx.fillStyle=col;ctx.fill();
+    const bs=r*.5;rr(cx+r*.5,cy-r-bs*.6,bs*1.6,bs,bs/3,GOLD);
+    ctx.fillStyle='#222';ctx.font=`800 ${Math.round(bs*.7)}px "Segoe UI",sans-serif`;ctx.textAlign='center';
+    ctx.fillText('5J',cx+r*.5+bs*.8,cy-r-bs*.6+bs*.72);
+}
+function iGlobe(cx,cy,r,col){
+    ctx.strokeStyle=col;ctx.lineWidth=Math.max(1.5,r/7);
+    ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx-r,cy);ctx.lineTo(cx+r,cy);ctx.stroke();
+    ctx.beginPath();ctx.ellipse(cx,cy,r*.45,r,0,0,Math.PI*2);ctx.stroke();
+}
+function iBasket(cx,cy,r,col){
+    ctx.fillStyle=col+'33';ctx.strokeStyle=col;ctx.lineWidth=Math.max(1.5,r/7);
+    ctx.beginPath();ctx.moveTo(cx-r,cy-r*.3);ctx.lineTo(cx-r+r*.3,cy+r);ctx.lineTo(cx+r-r*.3,cy+r);ctx.lineTo(cx+r,cy-r*.3);ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy-r*.5,r*.4,Math.PI,0);ctx.stroke();
+    for(const o of [-r*.3,0,r*.3]){ctx.beginPath();ctx.arc(cx+o,cy+r*.15,r*.15,0,Math.PI*2);ctx.fillStyle=col;ctx.fill()}
+    const bs=r*.5;rr(cx+r*.5,cy-r-bs*.6,bs*1.8,bs,bs/3,G400);
+    ctx.fillStyle='#fff';ctx.font=`800 ${Math.round(bs*.7)}px "Segoe UI",sans-serif`;ctx.textAlign='center';
+    ctx.fillText('5x',cx+r*.5+bs*.9,cy-r-bs*.6+bs*.72);
+}
+function iLink(cx,cy,r,col){
+    ctx.strokeStyle=col;ctx.lineWidth=Math.max(1.5,r/5);
+    ctx.beginPath();ctx.arc(cx-r*.2,cy,r*.45,Math.PI*.5,Math.PI*1.5);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx-r*.2,cy-r*.45);ctx.lineTo(cx+r*.1,cy-r*.45);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx-r*.2,cy+r*.45);ctx.lineTo(cx+r*.1,cy+r*.45);ctx.stroke();
+    ctx.beginPath();ctx.arc(cx+r*.2,cy,r*.45,Math.PI*1.5,Math.PI*.5);ctx.stroke();
+    ctx.fillStyle=col;ctx.beginPath();ctx.moveTo(cx+r*.8,cy-r*.25);ctx.lineTo(cx+r*1.1,cy);ctx.lineTo(cx+r*.8,cy+r*.25);ctx.closePath();ctx.fill();
+}
+function iForm(cx,cy,r,col){
+    ctx.strokeStyle=col;ctx.lineWidth=Math.max(1.5,r/6);
+    rr(cx-r*.55,cy-r,r*1.1,r*2,r*.18,null,col,Math.max(1.5,r/6));
+    rr(cx-r*.3,cy-r-r*.18,r*.6,r*.28,r*.1,col);
+    ctx.lineWidth=Math.max(1,r/9);
+    for(let i=0;i<4;i++){const yy=cy-r+r*.5+i*r*.38;const lw=i<3?r*.65:r*.38;ctx.beginPath();ctx.moveTo(cx-r*.35,yy);ctx.lineTo(cx-r*.35+lw,yy);ctx.stroke()}
+    ctx.strokeStyle=GOLD;ctx.lineWidth=Math.max(1.5,r/5);
+    ctx.beginPath();ctx.moveTo(cx+r*.05,cy+r*.45);ctx.lineTo(cx+r*.2,cy+r*.65);ctx.lineTo(cx+r*.5,cy+r*.15);ctx.stroke();
+}
+function iWA(cx,cy,r){
+    ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fillStyle=WA_GREEN;ctx.fill();
+    rr(cx-r*.35,cy-r*.45,r*.7,r*.9,r*.15,'#fff');
+    rr(cx-r*.2,cy-r*.3,r*.4,r*.6,r*.1,WA_GREEN);
+}
+
+// ============================================================
+//  SCENES
+// ============================================================
+const advCards=[
+    {ic:'clock', t:'5 jours au lieu de 24h', d:'Ta Story WhatsApp disparaît en 24h. Ton article sur Plannie reste visible pendant 5 jours complets !', col:GOLD},
+    {ic:'globe', t:'Au-delà de tes contacts', d:"Pas besoin d\u2019avoir le numéro de quelqu\u2019un. Ton article est exposé à TOUS les visiteurs du site.", col:'#42A5F5'},
+    {ic:'basket', t:"Jusqu\u2019à 5 articles publiés", d:'Publie 5 articles différents avec leurs prix, photos et lieux de livraison !', col:G400},
+    {ic:'link', t:'Un lien qui voyage', d:'Un seul lien partageable fait voyager ton article dans toute la ville.', col:'#AB47BC'},
+    {ic:'form', t:'Formulaire simple et complet', d:"Facile à remplir, bien détaillé. Ton article paraît pro dès sa publication.", col:'#FF7043'},
+];
+
+const scenes=[];
+function S(start,end,draw){scenes.push({start,end,draw})}
+
+// ── SCENE 1 (0–5s): Image plein écran avec léger zoom ──
+S(0,5000,function(t){
+    ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+    const zoom=1+easeInOut(t/5000)*0.08;
+    const iw=W*zoom, ih=H*zoom;
+    ctx.save();
+    ctx.translate(W/2,H/2);ctx.scale(zoom,zoom);ctx.translate(-W/2,-H/2);
+    coverImg(imgs.main,0,0,W,H);
+    ctx.restore();
+
+    // Subtle dark overlay increasing
+    const oa=lerp(0,0.15,t/5000);
+    ctx.fillStyle=`rgba(0,0,0,${oa})`;ctx.fillRect(0,0,W,H);
+
+    // At the end, show "Plannie Business" fading in
+    if(t>2500){
+        const ft=fadeUp(t,2500,1200);
+        ctx.globalAlpha=ft.a;
+        // Transparent header bar
+        ctx.fillStyle='rgba(46,125,50,0.3)';ctx.fillRect(0,0,W,60);
+        drawLogoCircle(32,30,18);
+        ctx.fillStyle='#fff';ctx.font='800 22px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText('Plannie',58,26+ft.y*0.3);
+        ctx.fillStyle=GOLD;ctx.fillText('Business',58,48+ft.y*0.3);
+        ctx.globalAlpha=1;
+    }
+    if(t>400&&t<600)sfxWhoosh();
+});
+
+// ── SCENE 2 (5–12s): Image monte, headline apparaît ──
+S(5000,12000,function(t){
+    ctx.fillStyle=DARK_BG;ctx.fillRect(0,0,W,H);
+
+    // Image slides up: from full screen to top 40%
+    const slideP=easeInOut(clamp(t/3000,0,1));
+    const imgTopH=lerp(H,H*0.40,slideP);
+    const imgY=lerp(0,0,slideP);
+
+    // Draw image clipped
+    ctx.save();ctx.beginPath();ctx.rect(0,0,W,imgTopH);ctx.clip();
+    coverImg(imgs.main,0,imgY,W,imgTopH);
+    ctx.restore();
+
+    // Bottom fade on image
+    const gH=imgTopH*0.4;
+    const g1=ctx.createLinearGradient(0,imgTopH-gH,0,imgTopH);
+    g1.addColorStop(0,'rgba(13,31,18,0)');g1.addColorStop(1,'rgba(13,31,18,0.97)');
+    ctx.fillStyle=g1;ctx.fillRect(0,imgTopH-gH,W,gH);
+
+    // Header bar
+    ctx.fillStyle='rgba(46,125,50,0.3)';ctx.fillRect(0,0,W,60);
+    drawLogoCircle(32,30,18);
+    ctx.fillStyle='#fff';ctx.font='800 22px "Segoe UI",sans-serif';ctx.textAlign='left';
+    ctx.fillText('Plannie',58,26);ctx.fillStyle=GOLD;ctx.fillText('Business',58,48);
+
+    // Headline appears after image has mostly slid up
+    if(t>2000){
+        const ft1=fadeUp(t,2000,1000);
+        ctx.globalAlpha=ft1.a;
+        ctx.textAlign='center';
+        // Shadow
+        ctx.fillStyle='rgba(0,0,0,.6)';ctx.font='900 32px "Segoe UI",sans-serif';
+        ctx.fillText('Publie tes articles.',W/2+2,imgTopH-62+2+ft1.y);
+        ctx.fillStyle='#fff';ctx.fillText('Publie tes articles.',W/2,imgTopH-62+ft1.y);
+        ctx.globalAlpha=1;
+    }
+    if(t>3000){
+        const ft2=fadeUp(t,3000,1000);
+        ctx.globalAlpha=ft2.a;
+        ctx.textAlign='center';
+        ctx.fillStyle='rgba(0,0,0,.6)';ctx.font='900 32px "Segoe UI",sans-serif';
+        ctx.fillText('Vends plus. Simplement.',W/2+2,imgTopH-26+2+ft2.y);
+        ctx.fillStyle=GOLD;ctx.fillText('Vends plus. Simplement.',W/2,imgTopH-26+ft2.y);
+        ctx.globalAlpha=1;
+    }
+
+    // Subtitle
+    if(t>4500){
+        const ft3=fadeUp(t,4500,800);
+        ctx.globalAlpha=ft3.a;
+        ctx.fillStyle=G300;ctx.font='400 16px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Le site qui met tes produits devant',W/2,imgTopH+22+ft3.y);
+        ctx.fillText('les yeux de toute la ville.',W/2,imgTopH+42+ft3.y);
+        ctx.globalAlpha=1;
+    }
+
+    if(t>1500&&t<1700)sfxWhoosh();
+    if(t>3000&&t<3200)sfxDing();
+});
+
+// ── SCENE 3 (12–18s): Section title + first 2 cards ──
+S(12000,18000,function(t){
+    ctx.fillStyle=DARK_BG;ctx.fillRect(0,0,W,H);
+
+    // Image at top (static, small)
+    const imgTopH=H*0.25;
+    ctx.save();ctx.beginPath();ctx.rect(0,0,W,imgTopH);ctx.clip();
+    coverImg(imgs.main,0,0,W,imgTopH);ctx.restore();
+    const gH=imgTopH*0.5;const g1=ctx.createLinearGradient(0,imgTopH-gH,0,imgTopH);
+    g1.addColorStop(0,'rgba(13,31,18,0)');g1.addColorStop(1,'rgba(13,31,18,0.97)');
+    ctx.fillStyle=g1;ctx.fillRect(0,imgTopH-gH,W,gH);
+
+    // Header
+    ctx.fillStyle='rgba(46,125,50,0.3)';ctx.fillRect(0,0,W,50);
+    drawLogoCircle(28,25,16);
+    ctx.fillStyle='#fff';ctx.font='800 18px "Segoe UI",sans-serif';ctx.textAlign='left';
+    ctx.fillText('Plannie',50,21);ctx.fillStyle=GOLD;ctx.fillText('Business',50,40);
+
+    // Section title
+    const scY=imgTopH+15;
+    const ft0=fadeUp(t,0,800);
+    ctx.globalAlpha=ft0.a;
+    rr(W/2-120,scY+ft0.y,240,32,16,G800,G400,1.5);
+    ctx.fillStyle='#fff';ctx.font='700 15px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Pourquoi Plannie Business ?',W/2,scY+22+ft0.y);
+    ctx.globalAlpha=1;
+
+    // Cards
+    const cY=scY+50;const cH=90;const cG=10;const cW=W-40;const cX=20;
+    for(let i=0;i<2;i++){
+        const a=advCards[i];
+        const delay=600+i*700;
+        const ft=fadeUp(t,delay,700);
+        if(ft.a<=0)continue;
+        ctx.globalAlpha=ft.a;
+        const y=cY+i*(cH+cG)+ft.y;
+        drawCard(cX,y,cW,cH,a);
+        ctx.globalAlpha=1;
+    }
+
+    // Headline reminder small
+    ctx.fillStyle='#fff';ctx.font='900 20px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.globalAlpha=0.6;ctx.fillText('Publie tes articles.',W/2,imgTopH-15);ctx.globalAlpha=1;
+
+    if(t>100&&t<300)sfxPop();
+    if(t>1200&&t<1400)sfxPop();
+});
+
+function drawCard(x,y,w,h,a){
+    rr(x,y,w,h,10,'rgba(22,42,28,.95)','rgba(50,75,55,.7)',1);
+    rr(x,y+h*.16,3,h*.68,2,a.col);
+    // Icon bg
+    const icCx=x+32,icCy=y+h/2,icR=14;
+    ctx.beginPath();ctx.arc(icCx,icCy,icR+2,0,Math.PI*2);ctx.fillStyle='rgba(15,35,20,.9)';ctx.fill();
+    ctx.strokeStyle=a.col;ctx.lineWidth=1.5;ctx.stroke();
+    // Icon
+    if(a.ic==='clock')iClock(icCx,icCy,icR-1,a.col);
+    else if(a.ic==='globe')iGlobe(icCx,icCy,icR-1,a.col);
+    else if(a.ic==='basket')iBasket(icCx,icCy,icR-1,a.col);
+    else if(a.ic==='link')iLink(icCx,icCy,icR-1,a.col);
+    else if(a.ic==='form')iForm(icCx,icCy,icR-1,a.col);
+    // Text
+    const tX=x+60;
+    ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';ctx.textAlign='left';
+    ctx.fillText(a.t,tX,y+h*.32);
+    ctx.fillStyle='rgba(175,205,180,.8)';ctx.font='400 11.5px "Segoe UI",sans-serif';
+    wrapText(a.d,tX,y+h*.52,w-(tX-x)-14,15);
+}
+
+// ── SCENE 4 (18–26s): Cards 3, 4, 5 ──
+S(18000,26000,function(t){
+    ctx.fillStyle=DARK_BG;ctx.fillRect(0,0,W,H);
+
+    // Mini header
+    ctx.fillStyle='rgba(46,125,50,0.3)';ctx.fillRect(0,0,W,45);
+    drawLogoCircle(24,22,14);
+    ctx.fillStyle='#fff';ctx.font='800 16px "Segoe UI",sans-serif';ctx.textAlign='left';
+    ctx.fillText('Plannie',44,18);ctx.fillStyle=GOLD;ctx.fillText('Business',44,35);
+
+    // Section banner
+    rr(W/2-120,55,240,28,14,G800,G400,1);
+    ctx.fillStyle='#fff';ctx.font='700 13px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText('Pourquoi Plannie Business ?',W/2,73);
+
+    const cY=100;const cH=90;const cG=10;const cW=W-40;const cX=20;
+    for(let i=0;i<3;i++){
+        const a=advCards[i+2];
+        const delay=200+i*800;
+        const ft=fadeUp(t,delay,700);
+        if(ft.a<=0)continue;
+        ctx.globalAlpha=ft.a;
+        const y=cY+i*(cH+cG)+ft.y;
+        drawCard(cX,y,cW,cH,a);
+        ctx.globalAlpha=1;
+    }
+
+    // Stars appearing after cards
+    if(t>3500){
+        const stY=cY+3*(cH+cG)+30;
+        for(let i=0;i<5;i++){
+            const sd=3500+i*200;
+            const sa=clamp((t-sd)/400,0,1);
+            if(sa<=0)continue;
+            ctx.globalAlpha=sa;
+            const sc=lerp(0.3,1,easeOut(sa));
+            ctx.save();ctx.translate(W/2-36+i*18,stY);ctx.scale(sc,sc);
+            star5(0,0,8,3.5,GOLD);ctx.restore();
+            ctx.globalAlpha=1;
+            if(t>sd&&t<sd+100)sfxStar();
+        }
+        if(t>5000){
+            const ft=fadeUp(t,5000,600);
+            ctx.globalAlpha=ft.a;
+            ctx.fillStyle='rgba(160,180,160,.7)';ctx.font='400 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+            ctx.fillText('\u00c9toiles, commentaires, contact WhatsApp direct...',W/2,stY+30+ft.y);
+            ctx.globalAlpha=1;
+        }
+    }
+
+    if(t>200&&t<400)sfxPop();
+    if(t>1000&&t<1200)sfxPop();
+    if(t>1800&&t<2000)sfxPop();
+});
+
+// ── SCENE 5 (26–38s): CTA + bottom section recap ──
+S(26000,38000,function(t){
+    ctx.fillStyle=DARK_BG;ctx.fillRect(0,0,W,H);
+
+    // Top image small
+    const imgTopH=H*0.30;
+    ctx.save();ctx.beginPath();ctx.rect(0,0,W,imgTopH);ctx.clip();
+    coverImg(imgs.main,0,-30,W,imgTopH+30);ctx.restore();
+    const gH=imgTopH*0.5;const g1=ctx.createLinearGradient(0,imgTopH-gH,0,imgTopH);
+    g1.addColorStop(0,'rgba(13,31,18,0)');g1.addColorStop(1,DARK_BG);
+    ctx.fillStyle=g1;ctx.fillRect(0,imgTopH-gH,W,gH);
+
+    // Header
+    ctx.fillStyle='rgba(46,125,50,0.3)';ctx.fillRect(0,0,W,50);
+    drawLogoCircle(28,25,16);
+    ctx.fillStyle='#fff';ctx.font='800 18px "Segoe UI",sans-serif';ctx.textAlign='left';
+    ctx.fillText('Plannie',50,21);ctx.fillStyle=GOLD;ctx.fillText('Business',50,40);
+
+    // Big headline
+    const ft1=fadeUp(t,400,1000);
+    ctx.globalAlpha=ft1.a;
+    ctx.textAlign='center';ctx.font='900 28px "Segoe UI",sans-serif';
+    ctx.fillStyle='rgba(0,0,0,.5)';ctx.fillText('Publie tes articles.',W/2+2,imgTopH-42+ft1.y+2);
+    ctx.fillStyle='#fff';ctx.fillText('Publie tes articles.',W/2,imgTopH-42+ft1.y);
+    ctx.fillStyle='rgba(0,0,0,.5)';ctx.fillText('Vends plus. Simplement.',W/2+2,imgTopH-10+ft1.y+2);
+    ctx.fillStyle=GOLD;ctx.fillText('Vends plus. Simplement.',W/2,imgTopH-10+ft1.y);
+    ctx.globalAlpha=1;
+
+    // CTA button pulsing
+    if(t>2000){
+        const ft2=fadeUp(t,2000,800);
+        ctx.globalAlpha=ft2.a;
+        const ctY=imgTopH+30+ft2.y;
+        const pulse=1+Math.sin(t/300)*0.02;
+        ctx.save();ctx.translate(W/2,ctY+25);ctx.scale(pulse,pulse);ctx.translate(-W/2,-ctY-25);
+        // Shadow
+        rr(50+3,ctY+3,W-106,50,25,'rgba(20,20,20,.4)');
+        rr(50,ctY,W-100,50,25,'#fff',G500,2);
+        // Arrow
+        ctx.fillStyle=G800;ctx.beginPath();ctx.moveTo(68,ctY+19);ctx.lineTo(80,ctY+25);ctx.lineTo(68,ctY+31);ctx.closePath();ctx.fill();
+        ctx.fillStyle=G800;ctx.font='800 16px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Publier mon article maintenant',W/2+6,ctY+31);
+        ctx.restore();
+        ctx.globalAlpha=1;
+    }
+
+    // Recap text
+    if(t>3500){
+        const recY=imgTopH+100;
+        const items=['✓ 5 jours de visibilité','✓ Visible par toute la ville','✓ Jusqu\u2019à 5 articles','✓ Lien partageable','✓ Formulaire pro','✓ WhatsApp & étoiles'];
+        items.forEach((item,i)=>{
+            const d=3500+i*400;
+            const ft=fadeUp(t,d,500);
+            if(ft.a<=0)return;
+            ctx.globalAlpha=ft.a;
+            ctx.fillStyle=i%2===0?G400:G300;ctx.font='600 14px "Segoe UI",sans-serif';ctx.textAlign='left';
+            ctx.fillText(item,40,recY+i*28+ft.y);
+            ctx.globalAlpha=1;
+        });
+    }
+
+    if(t>400&&t<600)sfxWhoosh();
+    if(t>2000&&t<2200)sfxSuccess();
+});
+
+// ── SCENE 6 (38–50s): Footer info — URL, phone, WhatsApp ──
+S(38000,50000,function(t){
+    // Green footer fills up from bottom
+    const fillP=easeOut(clamp(t/1500,0,1));
+    ctx.fillStyle=DARK_BG;ctx.fillRect(0,0,W,H);
+
+    // Image at very top, small
+    const imgH=H*0.20;
+    ctx.save();ctx.beginPath();ctx.rect(0,0,W,imgH);ctx.clip();
+    coverImg(imgs.main,0,-20,W,imgH+20);ctx.restore();
+    const gH2=imgH*0.6;const g1=ctx.createLinearGradient(0,imgH-gH2,0,imgH);
+    g1.addColorStop(0,'rgba(13,31,18,0)');g1.addColorStop(1,DARK_BG);
+    ctx.fillStyle=g1;ctx.fillRect(0,imgH-gH2,W,gH2);
+
+    // Green footer area
+    const footY=lerp(H,imgH+20,fillP);
+    ctx.fillStyle=G800;ctx.fillRect(0,footY,W,H-footY);
+
+    // Deco bar
+    if(fillP>0.5){
+        for(let x=0;x<W;x+=4){
+            ctx.fillStyle=(Math.floor(x/4)%2===0)?G400:G500;
+            ctx.fillRect(x,footY,2,3);
+        }
+    }
+
+    // Header
+    ctx.fillStyle='rgba(46,125,50,0.3)';ctx.fillRect(0,0,W,45);
+    drawLogoCircle(24,22,14);
+    ctx.fillStyle='#fff';ctx.font='800 16px "Segoe UI",sans-serif';ctx.textAlign='left';
+    ctx.fillText('Plannie',44,18);ctx.fillStyle=GOLD;ctx.fillText('Business',44,35);
+
+    // Headline
+    if(t>800){
+        const ft=fadeUp(t,800,800);
+        ctx.globalAlpha=ft.a;
+        ctx.textAlign='center';ctx.font='900 24px "Segoe UI",sans-serif';
+        ctx.fillStyle='#fff';ctx.fillText('Publie tes articles.',W/2,imgH+10+ft.y);
+        ctx.fillStyle=GOLD;ctx.font='900 22px "Segoe UI",sans-serif';
+        ctx.fillText('Vends plus. Simplement.',W/2,imgH+38+ft.y);
+        ctx.globalAlpha=1;
+    }
+
+    // Footer content
+    const fCY=footY+30;
+    if(t>2000&&fillP>0.9){
+        // Logo
+        const ft1=fadeUp(t,2000,600);
+        ctx.globalAlpha=ft1.a;
+        drawLogoCircle(W/2,fCY+ft1.y,22);
+        ctx.globalAlpha=1;
+
+        // URL
+        if(t>2800){
+            const ft2=fadeUp(t,2800,600);
+            ctx.globalAlpha=ft2.a;
+            ctx.fillStyle='#fff';ctx.font='700 18px "Segoe UI",sans-serif';ctx.textAlign='center';
+            ctx.fillText(SITE,W/2,fCY+42+ft2.y);
+            ctx.fillStyle=G200;ctx.font='400 12px "Segoe UI",sans-serif';
+            ctx.fillText('ou tape \u00ab Plannie Business \u00bb sur Google',W/2,fCY+60+ft2.y);
+            ctx.globalAlpha=1;
+        }
+
+        // Phone
+        if(t>4000){
+            const ft3=fadeUp(t,4000,600);
+            ctx.globalAlpha=ft3.a;
+            const phY=fCY+85;
+            iWA(W/2-80,phY+ft3.y,9);
+            ctx.fillStyle=GOLD;ctx.font='700 18px "Segoe UI",sans-serif';ctx.textAlign='left';
+            ctx.fillText(PHONE,W/2-65,phY+6+ft3.y);
+            ctx.globalAlpha=1;
+        }
+
+        // Subtext
+        if(t>5500){
+            const ft4=fadeUp(t,5500,600);
+            ctx.globalAlpha=ft4.a;
+            ctx.fillStyle='rgba(200,220,200,.7)';ctx.font='400 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+            ctx.fillText('WhatsApp \u2022 Appel \u2022 \u00c0 tout moment',W/2,fCY+115+ft4.y);
+            ctx.globalAlpha=1;
+        }
+
+        // Stars
+        if(t>7000){
+            for(let i=0;i<5;i++){
+                const sd=7000+i*150;
+                const sa=clamp((t-sd)/300,0,1);
+                if(sa<=0)continue;
+                ctx.globalAlpha=sa;
+                star5(W/2-36+i*18,fCY+145,7,3,GOLD);
+                ctx.globalAlpha=1;
+                if(t>sd&&t<sd+100)sfxStar();
+            }
+        }
+    }
+
+    if(t>200&&t<400)sfxWhoosh();
+    if(t>2800&&t<3000)sfxChime();
+});
+
+// ── SCENE 7 (50–62s): Final full recap — affiche style ──
+S(50000,62000,function(t){
+    ctx.fillStyle=DARK_BG;ctx.fillRect(0,0,W,H);
+
+    // Full poster miniature drawing (like the static poster)
+    const imgTopH=H*0.35;
+    ctx.save();ctx.beginPath();ctx.rect(0,0,W,imgTopH);ctx.clip();
+    coverImg(imgs.main,0,0,W,imgTopH);ctx.restore();
+    const gH=imgTopH*0.42;const g1=ctx.createLinearGradient(0,imgTopH-gH,0,imgTopH);
+    g1.addColorStop(0,'rgba(13,31,18,0)');g1.addColorStop(1,'rgba(13,31,18,0.97)');
+    ctx.fillStyle=g1;ctx.fillRect(0,imgTopH-gH,W,gH);
+    ctx.fillStyle='rgba(46,125,50,0.3)';ctx.fillRect(0,0,W,50);
+    drawLogoCircle(28,25,16);
+    ctx.fillStyle='#fff';ctx.font='800 18px "Segoe UI",sans-serif';ctx.textAlign='left';
+    ctx.fillText('Plannie',50,21);ctx.fillStyle=GOLD;ctx.fillText('Business',50,40);
+
+    // Headline
+    ctx.textAlign='center';ctx.font='900 26px "Segoe UI",sans-serif';
+    ctx.fillStyle='rgba(0,0,0,.5)';ctx.fillText('Publie tes articles.',W/2+1,imgTopH-50+1);
+    ctx.fillStyle='#fff';ctx.fillText('Publie tes articles.',W/2,imgTopH-50);
+    ctx.fillStyle='rgba(0,0,0,.5)';ctx.fillText('Vends plus. Simplement.',W/2+1,imgTopH-22+1);
+    ctx.fillStyle=GOLD;ctx.fillText('Vends plus. Simplement.',W/2,imgTopH-22);
+
+    // Subtitle
+    ctx.fillStyle=G300;ctx.font='400 13px "Segoe UI",sans-serif';
+    ctx.fillText('Le site qui met tes produits devant',W/2,imgTopH+12);
+    ctx.fillText('les yeux de toute la ville.',W/2,imgTopH+28);
+
+    // Mini cards (compact)
+    const mcY=imgTopH+42;const mcH=32;const mcG=4;
+    advCards.forEach((a,i)=>{
+        const delay=500+i*300;
+        const ft=fadeUp(t,delay,500);
+        if(ft.a<=0)return;
+        ctx.globalAlpha=ft.a;
+        const y=mcY+i*(mcH+mcG)+ft.y;
+        rr(20,y,W-40,mcH,8,'rgba(22,42,28,.95)','rgba(50,75,55,.5)',1);
+        rr(20,y+mcH*.2,3,mcH*.6,1.5,a.col);
+        ctx.fillStyle='#fff';ctx.font='600 12px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText(a.t,34,y+mcH*.65);
+        ctx.globalAlpha=1;
+    });
+
+    // CTA
+    if(t>2800){
+        const ft=fadeUp(t,2800,600);
+        ctx.globalAlpha=ft.a;
+        const ctY=mcY+5*(mcH+mcG)+15+ft.y;
+        rr(40+2,ctY+2,W-84,40,20,'rgba(0,0,0,.3)');
+        rr(40,ctY,W-80,40,20,'#fff',G500,1.5);
+        ctx.fillStyle=G800;ctx.font='800 13px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Publier mon article maintenant',W/2+5,ctY+25);
+        ctx.globalAlpha=1;
+    }
+
+    // Footer
+    if(t>3800){
+        const ft=fadeUp(t,3800,600);
+        ctx.globalAlpha=ft.a;
+        const fY=mcY+5*(mcH+mcG)+70+ft.y;
+        ctx.fillStyle=G800;ctx.fillRect(0,fY-5,W,H-fY+5);
+        for(let x=0;x<W;x+=4){ctx.fillStyle=(Math.floor(x/4)%2===0)?G400:G500;ctx.fillRect(x,fY-5,2,2)}
+        drawLogoCircle(W/2,fY+15,14);
+        ctx.fillStyle='#fff';ctx.font='700 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText(SITE,W/2,fY+40);
+        ctx.fillStyle=G200;ctx.font='400 10px "Segoe UI",sans-serif';
+        ctx.fillText('ou tape \u00ab Plannie Business \u00bb sur Google',W/2,fY+55);
+        iWA(W/2-55,fY+72,7);
+        ctx.fillStyle=GOLD;ctx.font='700 13px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText(PHONE,W/2-44,fY+76);
+        ctx.fillStyle='rgba(150,180,150,.5)';ctx.font='400 9px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('\u00a9 Plannie Business 2026 \u2013 by Havila \u2022 Lubumbashi, RD Congo',W/2,H-8);
+        ctx.globalAlpha=1;
+    }
+
+    // Final glow
+    if(t>8000){
+        const ga=Math.sin((t-8000)/800)*0.08;
+        ctx.fillStyle=`rgba(76,175,80,${Math.abs(ga)})`;ctx.fillRect(0,0,W,H);
+    }
+
+    if(t>300&&t<500)sfxWhoosh();
+    if(t>2800&&t<3000)sfxSuccess();
+    if(t>3800&&t<4000)sfxChime();
+});
+
+
+// ============================================================
+// RENDER ENGINE (same pattern as pub9)
+// ============================================================
+function renderFrame(timeMs){
+    for(const s of scenes){
+        if(timeMs>=s.start&&timeMs<s.end){
+            try{s.draw(timeMs-s.start)}catch(e){console.warn('Draw error:',e)}
+            return;
+        }
+    }
+}
+
+let isRunning=false;
+function runAd(download){
+    if(isRunning)return;
+    if(imgsLoaded<imgsTotal){document.getElementById('status').textContent='Chargement des images...';setTimeout(()=>runAd(download),500);return}
+    isRunning=true;
+    const btnP=document.getElementById('btnPlay'),btnD=document.getElementById('btnDl'),st=document.getElementById('status');
+    btnP.disabled=true;btnD.disabled=true;
+
+    initAudio(download);
+    let recorder,chunks=[];
+
+    if(download){
+        st.textContent='Enregistrement en cours... ~1 min 2 sec';
+        const vs=cv.captureStream(FPS);
+        if(audioDest)audioDest.stream.getAudioTracks().forEach(t=>vs.addTrack(t));
+        const mt=MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')?'video/webm;codecs=vp9,opus':MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')?'video/webm;codecs=vp8,opus':'video/webm';
+        recorder=new MediaRecorder(vs,{mimeType:mt,videoBitsPerSecond:3000000});
+        recorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+        recorder.onstop=()=>{
+            const blob=new Blob(chunks,{type:'video/webm'});const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');a.href=url;a.download='Plannie_Business_Pub12_Affiche.webm';
+            document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);
+            st.textContent='Video telechargee !';
+        };recorder.start();
+    }else{st.textContent='Lecture en cours...'}
+
+    let startTime=null;
+    function loop(ts){
+        if(!startTime)startTime=ts;
+        const elapsed=ts-startTime;
+        renderFrame(Math.min(elapsed,DURATION-1));
+        if(elapsed<DURATION+500){requestAnimationFrame(loop)}
+        else{if(recorder&&recorder.state==='recording')recorder.stop();isRunning=false;btnP.disabled=false;btnD.disabled=false;if(!download)st.textContent='Lecture terminee'}
+    }
+    requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
