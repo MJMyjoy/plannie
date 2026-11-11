@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plannie Business – Pub 14 : Pourquoi nous choisir ?</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;gap:16px}
+canvas{border-radius:16px;box-shadow:0 0 60px rgba(76,175,80,.25);max-width:95vw;max-height:80vh}
+@media(max-width:400px){canvas{border-radius:0}}
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.btn{padding:14px 28px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;display:flex;align-items:center;gap:8px}
+.btn-play{background:#2E7D32;color:#fff}.btn-play:hover{background:#388E3C}
+.btn-dl{background:#fff;color:#2E7D32}.btn-dl:hover{background:#E8F5E9}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.status{color:rgba(255,255,255,.5);font-size:13px;min-height:18px}
+</style>
+</head>
+<body>
+<canvas id="c" width="360" height="640"></canvas>
+<div class="controls">
+    <button class="btn btn-play" id="btnPlay" onclick="runAd(false)">▶ Lancer la pub</button>
+    <button class="btn btn-dl" id="btnDl" onclick="runAd(true)">📥 Télécharger la vidéo</button>
+</div>
+<div class="status" id="status"></div>
+
+<script>
+// ============================================================
+//  Plannie Business — Pub 14
+//  "Pourquoi choisir Plannie Business ?"
+//  Créativité · Spécialisation · Indépendance
+// ============================================================
+const W=360, H=640, FPS=30, DURATION=68000;
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+
+const G900='#1B5E20',G800='#2E7D32',G500='#4CAF50',G400='#66BB6A',G300='#81C784',G200='#A5D6A7';
+const GOLD='#F9A825',ORANGE='#EF6C00',BLUE='#1565C0',WA_GREEN='#25D366';
+const DARK_BG='#0D1F12';
+const SITE='plannie.onrender.com';
+const PHONE='+243 979 508 196';
+
+// ── Images ──
+const imgFiles={
+    bg:'img/file_03.png',
+    logo:'img/plannie_logo_1792797585289.jpg',
+    colodouce:'exp/gauffres_3pcs_a_1000_chez_colodouce.jpg',
+    monique:'exp/Sac a main dame de Chez Monique.jpg',
+    mad:'exp/Robe de Mad Business.jpeg'
+};
+const imgs={};let imgsLoaded=0,imgsTotal=Object.keys(imgFiles).length;
+for(const[k,src] of Object.entries(imgFiles)){
+    imgs[k]=new Image();imgs[k].onload=()=>imgsLoaded++;imgs[k].onerror=()=>imgsLoaded++;imgs[k].src=src;
+}
+
+// ── Audio ──
+let audioCtx=null,masterGain=null,audioDest=null;
+function initAudio(rec){
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=audioCtx.createGain();masterGain.gain.value=0.7;
+    masterGain.connect(audioCtx.destination);
+    if(rec){audioDest=audioCtx.createMediaStreamDestination();masterGain.connect(audioDest)}
+}
+function playTone(f,dur,vol=0.08,type='sine'){
+    if(!audioCtx)return;const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.type=type;o.frequency.value=f;
+    g.gain.setValueAtTime(vol,audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
+    o.connect(g);g.connect(masterGain);o.start();o.stop(audioCtx.currentTime+dur);
+}
+function sfxWhoosh(){playTone(300,.18,.05,'sawtooth');setTimeout(()=>playTone(600,.12,.04),50)}
+function sfxPop(){playTone(900,.07,.06);playTone(1300,.05,.04)}
+function sfxSuccess(){playTone(523,.12,.06);setTimeout(()=>playTone(659,.12,.06),100);setTimeout(()=>playTone(784,.12,.06),200);setTimeout(()=>playTone(1047,.2,.07),300)}
+function sfxChime(){playTone(880,.12,.05);setTimeout(()=>playTone(1100,.12,.05),100);setTimeout(()=>playTone(1320,.18,.06),200)}
+function sfxDing(){playTone(1200,.15,.06)}
+function sfxStar(){playTone(1000+Math.random()*500,.1,.04)}
+function sfxDeep(){playTone(180,.5,.06,'triangle');setTimeout(()=>playTone(220,.4,.05,'triangle'),200)}
+function sfxSoft(){playTone(660,.2,.04);setTimeout(()=>playTone(880,.25,.04),150)}
+
+// ── Helpers ──
+function easeOut(t){return 1-Math.pow(1-t,3)}
+function easeInOut(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function lerp(a,b,t){return a+(b-a)*clamp(t,0,1)}
+function fadeUp(t,delay,dur){const p=clamp((t-delay)/dur,0,1);return{y:lerp(40,0,easeOut(p)),a:lerp(0,1,easeOut(p))}}
+
+function coverImg(img,x,y,w,h){
+    if(!img||!img.complete||!img.naturalWidth)return;
+    const ar=img.naturalWidth/img.naturalHeight,cr=w/h;
+    let sw,sh;if(ar>cr){sh=h;sw=sh*ar}else{sw=w;sh=sw/ar}
+    ctx.drawImage(img,x+(w-sw)/2,y+(h-sh)/2,sw,sh);
+}
+function rr(x,y,w,h,r,fill,stroke,lw){
+    ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);
+    ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+    if(fill){ctx.fillStyle=fill;ctx.fill()}
+    if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw||2;ctx.stroke()}
+}
+function wrapText(text,x,y,maxW,lh){
+    const words=text.split(' ');let line='';
+    for(const w of words){const t=line+w+' ';if(ctx.measureText(t).width>maxW&&line!==''){ctx.fillText(line.trim(),x,y);y+=lh;line=w+' '}else{line=t}}
+    ctx.fillText(line.trim(),x,y);return y+lh;
+}
+function wrapTextCenter(text,cx,y,maxW,lh){
+    const words=text.split(' ');let line='';let lines=[];
+    ctx.save();
+    for(const w of words){const t=line+w+' ';if(ctx.measureText(t).width>maxW&&line!==''){lines.push(line.trim());line=w+' '}else{line=t}}
+    lines.push(line.trim());ctx.restore();
+    lines.forEach((l,i)=>{ctx.fillText(l,cx,y+i*lh)});
+    return y+lines.length*lh;
+}
+function star5(cx,cy,ro,ri,fill){
+    ctx.beginPath();for(let i=0;i<10;i++){const r=i%2===0?ro:ri;const a=Math.PI*i/5-Math.PI/2;if(!i)ctx.moveTo(cx+r*Math.cos(a),cy+r*Math.sin(a));else ctx.lineTo(cx+r*Math.cos(a),cy+r*Math.sin(a))}
+    ctx.closePath();ctx.fillStyle=fill;ctx.fill();
+}
+function drawLogoCircle(x,y,r){
+    if(!imgs.logo||!imgs.logo.complete)return;
+    ctx.save();ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.clip();
+    ctx.drawImage(imgs.logo,x-r,y-r,r*2,r*2);ctx.restore();
+    ctx.beginPath();ctx.arc(x,y,r+1,0,Math.PI*2);ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=1.5;ctx.stroke();
+}
+function drawHeader(){
+    ctx.fillStyle='rgba(46,125,50,0.35)';ctx.fillRect(0,0,W,50);
+    drawLogoCircle(28,25,16);
+    ctx.fillStyle='#fff';ctx.font='800 18px "Segoe UI",sans-serif';ctx.textAlign='left';
+    ctx.fillText('Plannie',50,21);ctx.fillStyle=GOLD;ctx.fillText('Business',50,40);
+}
+function drawBg(darkness){
+    coverImg(imgs.bg,0,0,W,H);
+    ctx.fillStyle=`rgba(0,0,0,${darkness||0.55})`;ctx.fillRect(0,0,W,H);
+}
+
+// Draws a "value pillar" scene: image + icon + title + text
+function drawValueScene(t,img,accentCol,numLabel,pillTitle,buyText,iconDraw){
+    ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+
+    // Subtle bg at top
+    ctx.save();ctx.globalAlpha=0.15;coverImg(imgs.bg,0,0,W,H);ctx.restore();
+    ctx.fillStyle='rgba(13,31,18,0.8)';ctx.fillRect(0,0,W,H);
+
+    drawHeader();
+
+    // Number badge top-right
+    const ft0=fadeUp(t,200,600);
+    ctx.globalAlpha=ft0.a;
+    ctx.beginPath();ctx.arc(W-35,75,18,0,Math.PI*2);ctx.fillStyle=accentCol;ctx.fill();
+    ctx.fillStyle='#fff';ctx.font='900 18px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText(numLabel,W-35,81);
+    ctx.globalAlpha=1;
+
+    // "Plannie Business encourage..."
+    if(t>300){
+        const ft=fadeUp(t,300,800);
+        ctx.globalAlpha=ft.a;
+        ctx.textAlign='left';
+        ctx.fillStyle=G300;ctx.font='600 12px "Segoe UI",sans-serif';
+        ctx.fillText('Plannie Business encourage...',25,75+ft.y);
+        ctx.globalAlpha=1;
+    }
+
+    // Pillar title
+    if(t>800){
+        const ft=fadeUp(t,800,900);
+        ctx.globalAlpha=ft.a;
+        ctx.textAlign='left';
+        ctx.fillStyle='#fff';ctx.font='900 20px "Segoe UI",sans-serif';
+        wrapText(pillTitle,25,108+ft.y,W-70,26);
+        ctx.globalAlpha=1;
+    }
+
+    // Product image — large showcase
+    if(t>1800){
+        const ft=fadeUp(t,1800,1000);
+        ctx.globalAlpha=ft.a;
+        const imgY=155+ft.y;
+        const imgH=200;
+        // Shadow
+        rr(27,imgY+3,W-54,imgH,16,'rgba(0,0,0,.3)');
+        // Image clipped
+        ctx.save();ctx.beginPath();rr(25,imgY,W-50,imgH,16,null);ctx.clip();
+        coverImg(img,25,imgY,W-50,imgH);ctx.restore();
+        // Border glow
+        ctx.beginPath();rr(25,imgY,W-50,imgH,16,null,accentCol+'88',2);
+        // Accent bar
+        rr(25,imgY,5,imgH,3,accentCol);
+        ctx.globalAlpha=1;
+    }
+
+    // Icon draw (custom per scene)
+    if(t>3200&&iconDraw){
+        const ft=fadeUp(t,3200,600);
+        ctx.globalAlpha=ft.a;
+        iconDraw(ft);
+        ctx.globalAlpha=1;
+    }
+
+    // "En les achetant..." text
+    if(t>4000){
+        const ft=fadeUp(t,4000,1000);
+        ctx.globalAlpha=ft.a;
+        const tY=390+ft.y;
+        rr(20,tY-10,W-40,145,14,'rgba(22,42,28,.92)','rgba(50,75,55,.5)',1);
+        // Accent left bar
+        rr(20,tY+5,4,120,2,accentCol);
+        ctx.fillStyle='#fff';ctx.font='700 13px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText('En les achetant, vous b\u00e9n\u00e9ficiez :',35,tY+10);
+        ctx.fillStyle='rgba(200,225,205,.9)';ctx.font='400 12.5px "Segoe UI",sans-serif';
+        wrapText(buyText,35,tY+32,W-80,17);
+        ctx.globalAlpha=1;
+    }
+
+    // Stars bottom
+    if(t>7000){
+        for(let i=0;i<5;i++){
+            const sd=7000+i*180;
+            const sa=clamp((t-sd)/350,0,1);
+            if(sa<=0)continue;
+            ctx.globalAlpha=sa;
+            const sc=lerp(.3,1,easeOut(sa));
+            ctx.save();ctx.translate(W/2-36+i*18,570);ctx.scale(sc,sc);
+            star5(0,0,8,3.5,GOLD);ctx.restore();
+            ctx.globalAlpha=1;
+            if(t>sd&&t<sd+100)sfxStar();
+        }
+    }
+
+    // Footer site
+    ctx.fillStyle='rgba(160,180,160,.4)';ctx.font='400 11px "Segoe UI",sans-serif';ctx.textAlign='center';
+    ctx.fillText(SITE,W/2,H-15);
+}
+
+// ============================================================
+//  SCENES
+// ============================================================
+const scenes=[];
+function S(start,end,draw){scenes.push({start,end,draw})}
+
+// ── SCENE 1 (0–7s): Hook — "Pourquoi choisir Plannie Business ?" ──
+S(0,7000,function(t){
+    ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+    // bg zoom
+    const z=1+easeInOut(clamp(t/7000,0,1))*0.07;
+    ctx.save();ctx.translate(W/2,H/2);ctx.scale(z,z);ctx.translate(-W/2,-H/2);
+    drawBg(0.55);
+    ctx.restore();
+
+    drawHeader();
+
+    // "POURQUOI" word
+    if(t>600){
+        const ft=fadeUp(t,600,1000);
+        ctx.globalAlpha=ft.a;
+        ctx.textAlign='center';
+        ctx.fillStyle=G300;ctx.font='600 16px "Segoe UI",sans-serif';
+        ctx.fillText('POURQUOI',W/2,180+ft.y);
+        ctx.globalAlpha=1;
+    }
+    // "choisir" word
+    if(t>1200){
+        const ft=fadeUp(t,1200,900);
+        ctx.globalAlpha=ft.a;
+        ctx.fillStyle='#fff';ctx.font='900 36px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('choisir',W/2,225+ft.y);
+        ctx.globalAlpha=1;
+    }
+    // "Plannie Business" with gold
+    if(t>2000){
+        const ft=fadeUp(t,2000,900);
+        ctx.globalAlpha=ft.a;
+        ctx.textAlign='center';
+        ctx.fillStyle='#fff';ctx.font='900 30px "Segoe UI",sans-serif';
+        ctx.fillText('Plannie',W/2-50,270+ft.y);
+        ctx.fillStyle=GOLD;ctx.fillText('Business',W/2+55,270+ft.y);
+        ctx.globalAlpha=1;
+    }
+    // "?"
+    if(t>2800){
+        const ft=fadeUp(t,2800,600);
+        ctx.globalAlpha=ft.a;
+        const pulse=1+Math.sin(t/250)*0.06;
+        ctx.save();ctx.translate(W/2,320+ft.y);ctx.scale(pulse,pulse);
+        ctx.fillStyle=GOLD;ctx.font='900 50px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('?',0,0);
+        ctx.restore();
+        ctx.globalAlpha=1;
+    }
+
+    // 3 preview circles at bottom
+    if(t>4000){
+        const previews=[
+            {img:imgs.colodouce,col:'#FF7043',label:'Cr\u00e9ativit\u00e9'},
+            {img:imgs.monique,col:GOLD,label:'Sp\u00e9cialisation'},
+            {img:imgs.mad,col:'#42A5F5',label:'Ind\u00e9pendance'},
+        ];
+        previews.forEach((p,i)=>{
+            const d=4000+i*400;
+            const ft=fadeUp(t,d,700);
+            if(ft.a<=0)return;
+            ctx.globalAlpha=ft.a;
+            const cx=W/2-90+i*90, cy=440+ft.y, r=32;
+            // Circle image
+            ctx.save();ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.clip();
+            coverImg(p.img,cx-r,cy-r,r*2,r*2);ctx.restore();
+            ctx.beginPath();ctx.arc(cx,cy,r+2,0,Math.PI*2);ctx.strokeStyle=p.col;ctx.lineWidth=2.5;ctx.stroke();
+            // Label
+            ctx.fillStyle=p.col;ctx.font='600 10px "Segoe UI",sans-serif';ctx.textAlign='center';
+            ctx.fillText(p.label,cx,cy+r+16);
+            ctx.globalAlpha=1;
+        });
+    }
+
+    if(t>300&&t<500)sfxDeep();
+    if(t>2000&&t<2200)sfxDing();
+    if(t>2800&&t<3000)sfxChime();
+});
+
+// ── SCENE 2 (7–17s): Pilier 1 — Créativité originale (Colodouce) ──
+S(7000,17000,function(t){
+    drawValueScene(t,imgs.colodouce,'#FF7043','1',
+        'Le produit de la\ncr\u00e9ativit\u00e9 originale',
+        "D\u2019un chef-d\u2019\u0153uvre unique, con\u00e7u artistiquement avec tous les soins possibles pour vous offrir une exp\u00e9rience in\u00e9dite. Chaque cr\u00e9ation est pens\u00e9e pour \u00e9merveiller vos sens.",
+        function(ft){
+            // Palette / art icon
+            const cx=W/2,cy=375;
+            ctx.beginPath();ctx.arc(cx,cy,18,0,Math.PI*2);ctx.fillStyle='rgba(255,112,67,.15)';ctx.fill();
+            ctx.strokeStyle='#FF7043';ctx.lineWidth=2;ctx.stroke();
+            // Paint dots
+            const cols=['#EF5350','#42A5F5','#FFEE58','#66BB6A','#AB47BC'];
+            cols.forEach((c,i)=>{
+                const a=Math.PI*2*i/cols.length-Math.PI/2;
+                ctx.beginPath();ctx.arc(cx+Math.cos(a)*10,cy+Math.sin(a)*10,4,0,Math.PI*2);
+                ctx.fillStyle=c;ctx.fill();
+            });
+        }
+    );
+    if(t>300&&t<500)sfxWhoosh();
+    if(t>1800&&t<2000)sfxSoft();
+    if(t>4000&&t<4200)sfxPop();
+});
+
+// ── SCENE 3 (17–27s): Pilier 2 — Spécialisation (Monique) ──
+S(17000,27000,function(t){
+    drawValueScene(t,imgs.monique,GOLD,'2',
+        'Les commer\u00e7ants\nsp\u00e9cialis\u00e9s',
+        "D\u2019une exp\u00e9rience et d\u2019un savoir-faire particuliers. Un article fruit d\u2019une passion et de l\u2019amour de ce qu\u2019on fait. Une personne qui a choisi son domaine, l\u2019a \u00e9tudi\u00e9 et a pass\u00e9 des ann\u00e9es \u00e0 pratiquer.",
+        function(ft){
+            // Target/expertise icon
+            const cx=W/2,cy=375;
+            ctx.strokeStyle=GOLD;ctx.lineWidth=2;
+            ctx.beginPath();ctx.arc(cx,cy,18,0,Math.PI*2);ctx.stroke();
+            ctx.beginPath();ctx.arc(cx,cy,12,0,Math.PI*2);ctx.stroke();
+            ctx.beginPath();ctx.arc(cx,cy,5,0,Math.PI*2);ctx.fillStyle=GOLD;ctx.fill();
+        }
+    );
+    if(t>300&&t<500)sfxWhoosh();
+    if(t>1800&&t<2000)sfxSoft();
+    if(t>4000&&t<4200)sfxPop();
+});
+
+// ── SCENE 4 (27–37s): Pilier 3 — Business indépendant (Mad Business) ──
+S(27000,37000,function(t){
+    drawValueScene(t,imgs.mad,'#42A5F5','3',
+        'Le business ind\u00e9pendant\ncontre le ch\u00f4mage',
+        "Vous contribuez au d\u00e9veloppement du pays en boostant les services des personnes qui autrefois auraient manqu\u00e9 d\u2019emploi. Chaque achat soutient un r\u00eave et une famille.",
+        function(ft){
+            // Handshake / support icon
+            const cx=W/2,cy=375;
+            ctx.strokeStyle='#42A5F5';ctx.lineWidth=2.5;
+            // Two hands meeting
+            ctx.beginPath();ctx.moveTo(cx-18,cy+5);ctx.quadraticCurveTo(cx-8,cy-12,cx,cy-5);ctx.stroke();
+            ctx.beginPath();ctx.moveTo(cx+18,cy+5);ctx.quadraticCurveTo(cx+8,cy-12,cx,cy-5);ctx.stroke();
+            // Heart above
+            ctx.fillStyle='#42A5F5';
+            ctx.beginPath();
+            const hx=cx,hy=cy-12,hs=5;
+            ctx.moveTo(hx,hy+hs);
+            ctx.bezierCurveTo(hx-hs*1.5,hy-hs,hx-hs*3,hy+hs,hx,hy+hs*2.5);
+            ctx.bezierCurveTo(hx+hs*3,hy+hs,hx+hs*1.5,hy-hs,hx,hy+hs);
+            ctx.fill();
+        }
+    );
+    if(t>300&&t<500)sfxWhoosh();
+    if(t>1800&&t<2000)sfxSoft();
+    if(t>4000&&t<4200)sfxPop();
+});
+
+// ── SCENE 5 (37–50s): "La prochaine fois..." — transition & choix ──
+S(37000,50000,function(t){
+    ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+    // bg with shift
+    const z=1+Math.sin(t/6000)*0.04;
+    ctx.save();ctx.translate(W/2,H/2);ctx.scale(z,z);ctx.translate(-W/2,-H/2);
+    drawBg(0.6);
+    ctx.restore();
+    drawHeader();
+
+    // "La prochaine fois..."
+    if(t>600){
+        const ft=fadeUp(t,600,1200);
+        ctx.globalAlpha=ft.a;
+        ctx.textAlign='center';
+        ctx.fillStyle='rgba(200,225,205,.7)';ctx.font='400 16px "Segoe UI",sans-serif';
+        ctx.fillText('La prochaine fois',W/2,120+ft.y);
+        ctx.fillStyle='#fff';ctx.font='700 18px "Segoe UI",sans-serif';
+        ctx.fillText('lorsque vous voudrez',W/2,148+ft.y);
+        ctx.fillStyle=GOLD;ctx.font='800 20px "Segoe UI",sans-serif';
+        ctx.fillText('faire vos courses...',W/2,176+ft.y);
+        ctx.globalAlpha=1;
+    }
+
+    // "Faites bien le choix de votre boutique."
+    if(t>3000){
+        const ft=fadeUp(t,3000,1000);
+        ctx.globalAlpha=ft.a;
+        rr(25,220+ft.y,W-50,50,25,null,G400,2);
+        ctx.fillStyle='#fff';ctx.font='700 16px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Faites bien le choix',W/2,242+ft.y);
+        ctx.fillStyle=G400;ctx.font='600 14px "Segoe UI",sans-serif';
+        ctx.fillText('de votre boutique.',W/2,260+ft.y);
+        ctx.globalAlpha=1;
+    }
+
+    // "Choisissez :" → big reveal
+    if(t>5500){
+        const ft=fadeUp(t,5500,1000);
+        ctx.globalAlpha=ft.a;
+        ctx.textAlign='center';
+        ctx.fillStyle=G300;ctx.font='600 15px "Segoe UI",sans-serif';
+        ctx.fillText('Choisissez :',W/2,320+ft.y);
+        ctx.globalAlpha=1;
+    }
+
+    // Big "Plannie Business" with glow
+    if(t>7000){
+        const ft=fadeUp(t,7000,1200);
+        ctx.globalAlpha=ft.a;
+        // Glow
+        const glowA=Math.sin(t/400)*0.15+0.2;
+        ctx.shadowColor=G500;ctx.shadowBlur=30*ft.a;
+        // Logo
+        drawLogoCircle(W/2,375+ft.y,28);
+        ctx.shadowBlur=0;
+        // Name
+        ctx.fillStyle='#fff';ctx.font='900 32px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Plannie',W/2-48,425+ft.y);
+        ctx.fillStyle=GOLD;ctx.fillText('Business',W/2+60,425+ft.y);
+        ctx.globalAlpha=1;
+    }
+
+    // Tagline
+    if(t>9000){
+        const ft=fadeUp(t,9000,800);
+        ctx.globalAlpha=ft.a;
+        ctx.fillStyle=G300;ctx.font='400 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('La vitrine des Story les plus',W/2,465+ft.y);
+        ctx.fillStyle=GOLD;ctx.font='600 15px "Segoe UI",sans-serif';
+        ctx.fillText('visit\u00e9es de la ville',W/2,484+ft.y);
+        ctx.globalAlpha=1;
+    }
+
+    // 3 mini circles recap
+    if(t>10500){
+        const previews=[
+            {img:imgs.colodouce,col:'#FF7043'},
+            {img:imgs.monique,col:GOLD},
+            {img:imgs.mad,col:'#42A5F5'},
+        ];
+        previews.forEach((p,i)=>{
+            const d=10500+i*300;
+            const sa=clamp((t-d)/500,0,1);
+            if(sa<=0)return;
+            ctx.globalAlpha=sa;
+            const cx=W/2-70+i*70,cy=530,r=22;
+            ctx.save();ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.clip();
+            coverImg(p.img,cx-r,cy-r,r*2,r*2);ctx.restore();
+            ctx.beginPath();ctx.arc(cx,cy,r+1,0,Math.PI*2);ctx.strokeStyle=p.col;ctx.lineWidth=2;ctx.stroke();
+            ctx.globalAlpha=1;
+            if(t>d&&t<d+100)sfxPop();
+        });
+    }
+
+    // Smiley at very bottom
+    if(t>11500){
+        const ft=fadeUp(t,11500,600);
+        ctx.globalAlpha=ft.a;
+        ctx.font='400 24px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('\uD83D\uDE0A',W/2,590+ft.y);
+        ctx.globalAlpha=1;
+    }
+
+    if(t>300&&t<500)sfxDeep();
+    if(t>5500&&t<5700)sfxDing();
+    if(t>7000&&t<7200)sfxSuccess();
+});
+
+// ── SCENE 6 (50–58s): Recap 3 piliers + étoiles ──
+S(50000,58000,function(t){
+    ctx.fillStyle=DARK_BG;ctx.fillRect(0,0,W,H);
+    // Subtle bg
+    ctx.save();ctx.globalAlpha=0.12;coverImg(imgs.bg,0,0,W,H);ctx.restore();
+    ctx.fillStyle='rgba(13,31,18,0.82)';ctx.fillRect(0,0,W,H);
+    drawHeader();
+
+    // Title
+    const ft0=fadeUp(t,200,700);
+    ctx.globalAlpha=ft0.a;
+    ctx.textAlign='center';ctx.fillStyle=GOLD;ctx.font='800 17px "Segoe UI",sans-serif';
+    ctx.fillText('NOS 3 PILIERS',W/2,75+ft0.y);
+    ctx.globalAlpha=1;
+
+    // 3 vertical cards with images
+    const pillars=[
+        {img:imgs.colodouce,col:'#FF7043',title:'Cr\u00e9ativit\u00e9 originale',sub:'Chef-d\u2019\u0153uvre unique'},
+        {img:imgs.monique,col:GOLD,title:'Sp\u00e9cialisation',sub:'Savoir-faire \u0026 passion'},
+        {img:imgs.mad,col:'#42A5F5',title:'Business ind\u00e9pendant',sub:'Contre le ch\u00f4mage'},
+    ];
+
+    pillars.forEach((p,i)=>{
+        const delay=500+i*900;
+        const ft=fadeUp(t,delay,800);
+        if(ft.a<=0)return;
+        ctx.globalAlpha=ft.a;
+
+        const y=100+i*160+ft.y;
+
+        // Card bg
+        rr(20,y,W-40,140,14,'rgba(22,42,28,.92)','rgba(50,75,55,.5)',1);
+        // Accent bar
+        rr(20,y+20,4,100,2,p.col);
+
+        // Image (left side, circular)
+        const icx=70,icy=y+70,ir=40;
+        ctx.save();ctx.beginPath();ctx.arc(icx,icy,ir,0,Math.PI*2);ctx.clip();
+        coverImg(p.img,icx-ir,icy-ir,ir*2,ir*2);ctx.restore();
+        ctx.beginPath();ctx.arc(icx,icy,ir+1,0,Math.PI*2);ctx.strokeStyle=p.col;ctx.lineWidth=2;ctx.stroke();
+
+        // Number
+        ctx.beginPath();ctx.arc(icx+ir-5,icy-ir+5,12,0,Math.PI*2);ctx.fillStyle=p.col;ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='900 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText(''+(i+1),icx+ir-5,icy-ir+9);
+
+        // Text (right side)
+        ctx.fillStyle='#fff';ctx.font='700 16px "Segoe UI",sans-serif';ctx.textAlign='left';
+        ctx.fillText(p.title,120,y+50);
+        ctx.fillStyle='rgba(180,210,185,.8)';ctx.font='400 13px "Segoe UI",sans-serif';
+        ctx.fillText(p.sub,120,y+72);
+
+        // Stars row
+        for(let s=0;s<5;s++){
+            star5(125+s*16,y+100,7,3,GOLD);
+        }
+
+        ctx.globalAlpha=1;
+    });
+
+    // Site at bottom
+    if(t>4000){
+        const ft=fadeUp(t,4000,600);
+        ctx.globalAlpha=ft.a*0.6;
+        ctx.fillStyle=G300;ctx.font='400 12px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText(SITE,W/2,H-20);
+        ctx.globalAlpha=1;
+    }
+
+    if(t>200&&t<400)sfxWhoosh();
+    if(t>1400&&t<1600)sfxPop();
+    if(t>2300&&t<2500)sfxPop();
+    if(t>3200&&t<3400)sfxPop();
+});
+
+// ── SCENE 7 (58–68s): CTA final + footer ──
+S(58000,68000,function(t){
+    ctx.fillStyle=DARK_BG;ctx.fillRect(0,0,W,H);
+
+    // bg top
+    const topH=H*0.30;
+    ctx.save();ctx.beginPath();ctx.rect(0,0,W,topH);ctx.clip();
+    coverImg(imgs.bg,0,0,W,topH);ctx.restore();
+    const grd=ctx.createLinearGradient(0,topH-70,0,topH);
+    grd.addColorStop(0,'rgba(13,31,18,0)');grd.addColorStop(1,DARK_BG);
+    ctx.fillStyle=grd;ctx.fillRect(0,topH-70,W,70);
+    drawHeader();
+
+    // Headline
+    const ft1=fadeUp(t,300,900);
+    ctx.globalAlpha=ft1.a;
+    ctx.textAlign='center';
+    ctx.fillStyle='#fff';ctx.font='900 24px "Segoe UI",sans-serif';
+    ctx.fillText('Choisissez',W/2,topH-40+ft1.y);
+    ctx.fillStyle=GOLD;ctx.font='900 26px "Segoe UI",sans-serif';
+    ctx.fillText('Plannie Business',W/2,topH-10+ft1.y);
+    ctx.globalAlpha=1;
+
+    // Tagline
+    if(t>1500){
+        const ft=fadeUp(t,1500,700);
+        ctx.globalAlpha=ft.a;
+        ctx.fillStyle=G300;ctx.font='400 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('La vitrine des Story les plus',W/2,topH+25+ft.y);
+        ctx.fillStyle=GOLD;ctx.font='600 15px "Segoe UI",sans-serif';
+        ctx.fillText('visit\u00e9es de la ville \uD83D\uDE0A',W/2,topH+45+ft.y);
+        ctx.globalAlpha=1;
+    }
+
+    // CTA pulsing
+    if(t>2800){
+        const ft=fadeUp(t,2800,800);
+        ctx.globalAlpha=ft.a;
+        const ctY=topH+75+ft.y;
+        const pulse=1+Math.sin(t/300)*0.015;
+        ctx.save();ctx.translate(W/2,ctY+22);ctx.scale(pulse,pulse);ctx.translate(-W/2,-ctY-22);
+        rr(40+2,ctY+2,W-84,44,22,'rgba(0,0,0,.3)');
+        rr(40,ctY,W-80,44,22,'#fff',G500,2);
+        ctx.fillStyle=G800;ctx.font='800 14px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('Visiter la vitrine maintenant',W/2+5,ctY+28);
+        ctx.restore();
+        ctx.globalAlpha=1;
+    }
+
+    // Footer green
+    if(t>4000){
+        const ft=fadeUp(t,4000,800);
+        ctx.globalAlpha=ft.a;
+        const fY=topH+140+ft.y;
+        ctx.fillStyle=G800;ctx.fillRect(0,fY,W,H-fY);
+        for(let x=0;x<W;x+=4){ctx.fillStyle=(Math.floor(x/4)%2===0)?G400:G500;ctx.fillRect(x,fY,2,3)}
+
+        drawLogoCircle(W/2,fY+30,18);
+        ctx.fillStyle='#fff';ctx.font='700 16px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText(SITE,W/2,fY+60);
+        ctx.fillStyle=G200;ctx.font='400 11px "Segoe UI",sans-serif';
+        ctx.fillText('ou tapez \u00ab Plannie Business \u00bb sur Google',W/2,fY+76);
+
+        // Phone
+        if(t>5000){
+            const ft2=fadeUp(t,5000,600);
+            ctx.globalAlpha=ft.a*ft2.a;
+            const phY=fY+95;
+            ctx.beginPath();ctx.arc(W/2-70,phY,8,0,Math.PI*2);ctx.fillStyle=WA_GREEN;ctx.fill();
+            rr(W/2-74,phY-4,8,8,3,'#fff');
+            ctx.fillStyle=GOLD;ctx.font='700 15px "Segoe UI",sans-serif';ctx.textAlign='left';
+            ctx.fillText(PHONE,W/2-55,phY+5);
+            ctx.fillStyle='rgba(200,220,200,.6)';ctx.font='400 11px "Segoe UI",sans-serif';ctx.textAlign='center';
+            ctx.fillText('WhatsApp \u2022 Appel \u2022 \u00c0 tout moment',W/2,phY+24);
+        }
+
+        ctx.globalAlpha=ft.a*0.5;
+        ctx.fillStyle='rgba(180,200,180,.6)';ctx.font='400 9px "Segoe UI",sans-serif';ctx.textAlign='center';
+        ctx.fillText('\u00a9 Plannie Business 2026 \u2013 by Havila \u2022 Lubumbashi, RD Congo',W/2,H-10);
+        ctx.globalAlpha=1;
+    }
+
+    // Glow
+    if(t>7500){
+        const ga=Math.sin((t-7500)/600)*0.06;
+        ctx.fillStyle=`rgba(76,175,80,${Math.abs(ga)})`;ctx.fillRect(0,0,W,H);
+    }
+
+    if(t>200&&t<400)sfxWhoosh();
+    if(t>2800&&t<3000)sfxSuccess();
+    if(t>5000&&t<5200)sfxChime();
+});
+
+// ============================================================
+// RENDER ENGINE (same pattern as pub9)
+// ============================================================
+function renderFrame(timeMs){
+    for(const s of scenes){
+        if(timeMs>=s.start&&timeMs<s.end){
+            try{s.draw(timeMs-s.start)}catch(e){console.warn('Draw error:',e)}
+            return;
+        }
+    }
+}
+
+let isRunning=false;
+function runAd(download){
+    if(isRunning)return;
+    if(imgsLoaded<imgsTotal){document.getElementById('status').textContent='Chargement des images...';setTimeout(()=>runAd(download),500);return}
+    isRunning=true;
+    const btnP=document.getElementById('btnPlay'),btnD=document.getElementById('btnDl'),st=document.getElementById('status');
+    btnP.disabled=true;btnD.disabled=true;
+
+    initAudio(download);
+    let recorder,chunks=[];
+
+    if(download){
+        st.textContent='Enregistrement en cours... ~1 min 8 sec';
+        const vs=cv.captureStream(FPS);
+        if(audioDest)audioDest.stream.getAudioTracks().forEach(t=>vs.addTrack(t));
+        const mt=MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')?'video/webm;codecs=vp9,opus':MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')?'video/webm;codecs=vp8,opus':'video/webm';
+        recorder=new MediaRecorder(vs,{mimeType:mt,videoBitsPerSecond:3000000});
+        recorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+        recorder.onstop=()=>{
+            const blob=new Blob(chunks,{type:'video/webm'});const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');a.href=url;a.download='Plannie_Business_Pub14_Pourquoi.webm';
+            document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);
+            st.textContent='Video telechargee !';
+        };recorder.start();
+    }else{st.textContent='Lecture en cours...'}
+
+    let startTime=null;
+    function loop(ts){
+        if(!startTime)startTime=ts;
+        const elapsed=ts-startTime;
+        renderFrame(Math.min(elapsed,DURATION-1));
+        if(elapsed<DURATION+500){requestAnimationFrame(loop)}
+        else{if(recorder&&recorder.state==='recording')recorder.stop();isRunning=false;btnP.disabled=false;btnD.disabled=false;if(!download)st.textContent='Lecture terminee'}
+    }
+    requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
