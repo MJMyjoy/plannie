@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plannie Business – Pub 15 : L'application Android est là !</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;gap:16px}
+canvas{border-radius:16px;box-shadow:0 0 60px rgba(76,175,80,.25);max-width:95vw;max-height:80vh}
+@media(max-width:400px){canvas{border-radius:0}}
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.btn{padding:14px 28px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;display:flex;align-items:center;gap:8px}
+.btn-play{background:#2E7D32;color:#fff}.btn-play:hover{background:#388E3C}
+.btn-dl{background:#fff;color:#2E7D32}.btn-dl:hover{background:#E8F5E9}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.status{color:rgba(255,255,255,.5);font-size:13px;min-height:18px}
+</style>
+</head>
+<body>
+<canvas id="c" width="360" height="640"></canvas>
+<div class="controls">
+    <button class="btn btn-play" id="btnPlay" onclick="runAd(false)">▶ Lancer la pub</button>
+    <button class="btn btn-dl" id="btnDl" onclick="runAd(true)">📥 Télécharger la vidéo</button>
+</div>
+<div class="status" id="status"></div>
+
+<script>
+// ============================================================
+//  Plannie Business — Pub 15
+//  "L'application Android est là !"
+//  Pattern calqué sur pub14 (scenes array + try-catch)
+// ============================================================
+const W = 360, H = 640, FPS = 30, DURATION = 62000;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+
+const G900 = '#1B5E20', G800 = '#2E7D32', G500 = '#4CAF50', G400 = '#66BB6A', G300 = '#81C784', G200 = '#A5D6A7';
+const GOLD = '#FFC107', DARK_BG = '#0D1F12';
+const SITE_URL = 'plannie-business.onrender.com';
+
+// ── Images ──
+const imgFiles = {
+    bgPhoto: 'img/file_publicite.png',
+    logo: 'img/plannie_logo_1792797585289.jpg',
+    siteScreen: 'img/Site_static_Plannie.jpg',
+    art0: 'exp/gauffres_3pcs_a_1000_chez_colodouce.jpg',
+    art1: 'exp/Sac a main dame de Chez Monique.jpg',
+    art2: 'exp/Robe de Mad Business.jpeg',
+    art3: 'exp/Parfum mixte de chez Amy business a 20000 FC.jpeg',
+    art4: 'exp/veste_95_dollards_chez_tshoku_business.jpg'
+};
+const imgs = {};
+let imgsLoaded = 0, imgsTotal = Object.keys(imgFiles).length;
+for (const [k, src] of Object.entries(imgFiles)) {
+    imgs[k] = new Image();
+    imgs[k].onload = () => imgsLoaded++;
+    imgs[k].onerror = () => imgsLoaded++;
+    imgs[k].src = src;
+}
+
+// ── Cards data ──
+const fakeCards = [
+    { name: 'Gaufres 3 Pcs',      biz: 'Chez Colodouce',   price: '1 000 FC', color: '#BF360C', stars: 4.5, cat: '🍰 Pâtisserie',   img: 'art0' },
+    { name: 'Sac Dame Élégant',    biz: 'Chez Monique',     price: '25 $',      color: '#4A148C', stars: 5,   cat: '👜 Mode',         img: 'art1' },
+    { name: 'Robe Classe',         biz: 'Mad Business',     price: '35 $',      color: '#B71C1C', stars: 4,   cat: '👗 Vêtements',    img: 'art2' },
+    { name: 'Parfum Mixte',        biz: 'Amy Business',     price: '20 000 FC', color: '#1A237E', stars: 4.5, cat: '🌸 Parfumerie',   img: 'art3' },
+    { name: 'Veste Élégante',      biz: 'Tshoku Business',  price: '95 $',      color: '#1B5E20', stars: 5,   cat: '🧥 Mode Homme',   img: 'art4' },
+];
+
+// ── Audio ──
+let audioCtx = null, masterGain = null, audioDest = null;
+function initAudio(rec) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.7;
+    masterGain.connect(audioCtx.destination);
+    if (rec) {
+        audioDest = audioCtx.createMediaStreamDestination();
+        masterGain.connect(audioDest);
+    }
+}
+function playNote(f, s, d, ty = 'sine', v = 0.3) {
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = ty; o.frequency.value = f;
+    g.gain.setValueAtTime(v, audioCtx.currentTime + s);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + s + d);
+    o.connect(g); g.connect(masterGain);
+    o.start(audioCtx.currentTime + s);
+    o.stop(audioCtx.currentTime + s + d);
+}
+function playChime(d) { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => playNote(f, d + i * 0.12, 0.5, 'sine', 0.2)); }
+function playSuccess(d) { playNote(440, d, 0.15, 'square', 0.15); playNote(554.37, d + 0.1, 0.15, 'square', 0.15); playNote(659.25, d + 0.2, 0.3, 'square', 0.15); }
+function playWow(d) { [261.63, 329.63, 392, 523.25, 659.25, 783.99].forEach((f, i) => playNote(f, d + i * 0.08, 0.6, 'sine', 0.25)); playNote(130.81, d, 1.2, 'triangle', 0.12); }
+function playSwipe(d) { for (let i = 0; i < 5; i++) playNote(400 + i * 80, d + i * 0.03, 0.15, 'sine', 0.1); }
+function playPulse(d) { playNote(220, d, 0.08, 'square', 0.1); }
+
+// ── Helpers (same proven pattern as pub14) ──
+function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+function easeInOut(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function lerp(a, b, t) { return a + (b - a) * clamp(t, 0, 1); }
+function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+
+function coverImg(img, x, y, w, h) {
+    if (!img || !img.complete || !img.naturalWidth) return;
+    const ar = img.naturalWidth / img.naturalHeight, cr = w / h;
+    let sw, sh;
+    if (ar > cr) { sh = h; sw = sh * ar; } else { sw = w; sh = sw / ar; }
+    ctx.drawImage(img, x + (w - sw) / 2, y + (h - sh) / 2, sw, sh);
+}
+
+function rr(x, y, w, h, r, fill, stroke, lw) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw || 2; ctx.stroke(); }
+}
+
+function drawBg(darkness) {
+    coverImg(imgs.bgPhoto, 0, 0, W, H);
+    ctx.fillStyle = 'rgba(0,0,0,' + (darkness || 0.55) + ')';
+    ctx.fillRect(0, 0, W, H);
+}
+
+function drawLogo(cx, cy, s) {
+    if (imgs.logo && imgs.logo.complete && imgs.logo.naturalWidth) {
+        ctx.save();
+        ctx.beginPath(); ctx.arc(cx, cy, s / 2, 0, Math.PI * 2); ctx.clip();
+        ctx.drawImage(imgs.logo, cx - s / 2, cy - s / 2, s, s);
+        ctx.restore();
+        ctx.beginPath(); ctx.arc(cx, cy, s / 2 + 1, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+    } else {
+        ctx.save();
+        ctx.beginPath(); ctx.arc(cx, cy, s / 2, 0, Math.PI * 2);
+        ctx.fillStyle = G800; ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = 'bold ' + (s * 0.5) + 'px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('P', cx, cy);
+        ctx.restore();
+    }
+}
+
+function drawStar(cx, cy, r, filled) {
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+        const a = Math.PI / 2 + i * Math.PI * 2 / 5;
+        const x = cx + Math.cos(-a) * r, y = cy + Math.sin(-a) * r;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        const a2 = a + Math.PI / 5;
+        ctx.lineTo(cx + Math.cos(-a2) * r * 0.4, cy + Math.sin(-a2) * r * 0.4);
+    }
+    ctx.closePath();
+    ctx.fillStyle = filled ? GOLD : 'rgba(255,255,255,0.2)';
+    ctx.fill();
+}
+
+function drawPhone(x, y, w, h, sc) {
+    ctx.save();
+    rr(x, y, w, h, 18, '#1a1a1a', '#333', 2);
+    const sx = x + 6, sy = y + 30, sw = w - 12, sh = h - 60;
+    rr(sx, sy, sw, sh, 8, sc || '#000');
+    ctx.beginPath();
+    rr(sx, sy, sw, sh, 8); ctx.clip();
+    // Notch
+    rr(x + w / 2 - 30, y, 60, 24, 0, '#1a1a1a');
+    ctx.restore();
+    return { sx: sx, sy: sy, sw: sw, sh: sh };
+}
+
+function drawHeader() {
+    ctx.fillStyle = 'rgba(46,125,50,0.35)';
+    ctx.fillRect(0, 0, W, 50);
+    drawLogo(28, 25, 32);
+    ctx.fillStyle = '#fff'; ctx.font = '800 18px "Segoe UI",sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('Plannie', 50, 21);
+    ctx.fillStyle = GOLD; ctx.fillText('Business', 50, 40);
+}
+
+// ── Draw an article card WITH its image ──
+function drawCard(x, y, w, h, card, t) {
+    ctx.save();
+    rr(x, y, w, h, 14); ctx.clip();
+
+    // Image background
+    const im = imgs[card.img];
+    if (im && im.complete && im.naturalWidth) {
+        const ir = im.naturalWidth / im.naturalHeight, cr = w / h;
+        let dw, dh;
+        if (ir > cr) { dh = h; dw = h * ir; } else { dw = w; dh = w / ir; }
+        ctx.drawImage(im, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+    } else {
+        ctx.fillStyle = card.color; ctx.fillRect(x, y, w, h);
+    }
+
+    // Bottom gradient overlay (tinted with card color)
+    const grd = ctx.createLinearGradient(x, y, x, y + h);
+    grd.addColorStop(0, 'rgba(0,0,0,0)');
+    grd.addColorStop(0.40, 'rgba(0,0,0,0.05)');
+    grd.addColorStop(0.65, card.color + '99');
+    grd.addColorStop(1, card.color + 'EE');
+    ctx.fillStyle = grd; ctx.fillRect(x, y, w, h);
+
+    // Top dark strip
+    const topGrd = ctx.createLinearGradient(x, y, x, y + 50);
+    topGrd.addColorStop(0, 'rgba(0,0,0,0.5)');
+    topGrd.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = topGrd; ctx.fillRect(x, y, w, 50);
+
+    // Category badge
+    rr(x + 10, y + 10, w * 0.52, 22, 11, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(card.cat, x + 16, y + 21);
+
+    // Stars top-right
+    for (let i = 0; i < 5; i++) drawStar(x + w - 58 + i * 12, y + 21, 6, i < Math.floor(card.stars));
+
+    // Bottom info
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(card.name, x + 12, y + h - 42);
+    ctx.font = '11px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillText(card.biz + ' • Lubumbashi', x + 12, y + h - 26);
+
+    // Price badge
+    ctx.fillStyle = GOLD; ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText(card.price, x + w - 12, y + h - 26);
+
+    // "Détails" button
+    const bw = 72, bh = 26, bx = x + w / 2 - bw / 2, by = y + h - bh - 8;
+    rr(bx, by, bw, bh, 13, 'rgba(255,255,255,0.92)');
+    ctx.fillStyle = card.color; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Détails', x + w / 2, by + bh / 2);
+
+    ctx.restore();
+}
+
+
+// ============================================================
+//  SCENES (pub14-style array + try-catch)
+// ============================================================
+const scenes = [];
+function S(start, end, draw) { scenes.push({ start: start, end: end, draw: draw }); }
+
+// ══════════ SCENE 1 – INTRO  (0 – 5 s) ══════════
+S(0, 5000, function(t) {
+    // Background photo with dark overlay
+    drawBg(0.7);
+
+    // Floating particles
+    for (let i = 0; i < 20; i++) {
+        const px = (Math.sin(t / 800 + i * 1.3) * 0.4 + 0.5) * W;
+        const py = (Math.cos(t / 600 + i * 1.7) * 0.4 + 0.5) * H;
+        ctx.beginPath();
+        ctx.arc(px, py, 2 + Math.sin(t / 400 + i) * 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(76,175,80,' + (0.15 + Math.sin(t / 300 + i) * 0.1) + ')';
+        ctx.fill();
+    }
+
+    // Logo
+    const lS = easeOut(Math.min(1, t / 1200));
+    drawLogo(W / 2, H / 2 - 60, 80 * lS);
+
+    // Title
+    if (t > 800) {
+        const a = ease(Math.min(1, (t - 800) / 1000));
+        ctx.globalAlpha = a;
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 28px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Plannie Business', W / 2, H / 2 + 20);
+        ctx.font = '15px sans-serif'; ctx.fillStyle = G300;
+        ctx.fillText('La vitrine de la ville', W / 2, H / 2 + 48);
+        ctx.globalAlpha = 1;
+    }
+
+    // "NOUVEAU" badge
+    if (t > 2500) {
+        const b = ease(Math.min(1, (t - 2500) / 600));
+        ctx.save();
+        ctx.translate(W / 2, H / 2 + 100); ctx.scale(b, b);
+        rr(-80, -18, 160, 36, 18, GOLD);
+        ctx.fillStyle = '#000'; ctx.font = 'bold 16px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('📱 NOUVEAU !', 0, 1);
+        ctx.restore();
+    }
+
+    // Subtitle
+    if (t > 3500) {
+        const s = ease(Math.min(1, (t - 3500) / 800));
+        ctx.globalAlpha = s;
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 17px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText("L'application Android", W / 2, H / 2 + 155);
+        ctx.fillText('est enfin disponible !', W / 2, H / 2 + 178);
+        ctx.globalAlpha = 1;
+    }
+});
+
+// ══════════ SCENE 2 – SITE  (5 – 13 s) ══════════
+S(5000, 13000, function(t) {
+    const p = t / 8000;
+    drawBg(0.8);
+
+    const fAlpha = p > 0.85 ? 1 - ease((p - 0.85) / 0.15) : 1;
+    ctx.globalAlpha = p < 0.15 ? ease(p / 0.15) : fAlpha;
+
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('1️⃣  Rendez-vous sur', W / 2, 35);
+    ctx.fillStyle = G400; ctx.font = 'bold 14px sans-serif';
+    ctx.fillText(SITE_URL, W / 2, 57);
+
+    // Phone with site screenshot
+    const pw = 200, ph = 380, px = W / 2 - pw / 2, py = 80;
+    const scr = drawPhone(px, py, pw, ph, '#f5f5f5');
+    if (imgs.siteScreen && imgs.siteScreen.complete && imgs.siteScreen.naturalWidth) {
+        ctx.save();
+        rr(scr.sx, scr.sy, scr.sw, scr.sh, 6); ctx.clip();
+        const ir = imgs.siteScreen.naturalWidth / imgs.siteScreen.naturalHeight;
+        const dh = scr.sh;
+        const dw = dh * ir;
+        ctx.drawImage(imgs.siteScreen, scr.sx + (scr.sw - dw) / 2, scr.sy, dw, dh);
+        ctx.restore();
+    }
+
+    // Tap finger
+    if (p > 0.3 && p < 0.7) {
+        const f = ease(Math.min(1, (p - 0.3) / 0.15));
+        ctx.save(); ctx.globalAlpha = f;
+        ctx.font = '28px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(Math.sin(t / 200) > 0 ? '👆' : '☝️', scr.sx + scr.sw / 2 + 30, scr.sy + scr.sh * 0.65);
+        ctx.restore();
+    }
+
+    // Instruction text
+    if (p > 0.25) {
+        const b = ease(Math.min(1, (p - 0.25) / 0.15));
+        ctx.save(); ctx.globalAlpha = b * fAlpha;
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Cliquez sur :', W / 2, py + ph + 25);
+        ctx.fillStyle = G400; ctx.font = 'bold 14px sans-serif';
+        ctx.fillText("📲 Télécharger l'apk de", W / 2, py + ph + 48);
+        ctx.fillText('Plannie Business', W / 2, py + ph + 66);
+        ctx.restore();
+    }
+
+    // Security note
+    if (p > 0.55) {
+        const n = ease(Math.min(1, (p - 0.55) / 0.15));
+        ctx.save(); ctx.globalAlpha = n * fAlpha;
+        rr(20, py + ph + 85, W - 40, 60, 12, 'rgba(46,125,50,0.15)', G500, 1);
+        ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('🔒 Aucune donnée sensible demandée', W / 2, py + ph + 107);
+        ctx.fillText('✅ Validé par Play Protect', W / 2, py + ph + 125);
+        ctx.fillStyle = G300; ctx.font = '10px sans-serif';
+        ctx.fillText('Cliquez "Télécharger quand même" si demandé', W / 2, py + ph + 140);
+        ctx.restore();
+    }
+
+    ctx.globalAlpha = 1;
+});
+
+// ══════════ SCENE 3 – DOWNLOAD+INSTALL  (13 – 20 s) ══════════
+S(13000, 20000, function(t) {
+    const p = t / 7000;
+    drawBg(0.85);
+
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('2️⃣  Installation rapide', W / 2, 40);
+
+    if (p < 0.4) {
+        // Download progress
+        const d = p / 0.4;
+        ctx.fillStyle = '#fff'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Téléchargement en cours...', W / 2, H / 2 - 60);
+        rr(40, H / 2 - 30, W - 80, 20, 10, 'rgba(255,255,255,0.1)');
+        rr(40, H / 2 - 30, (W - 80) * easeOut(d), 20, 10, G500);
+        ctx.fillStyle = G300; ctx.font = 'bold 14px sans-serif';
+        ctx.fillText(Math.round(d * 100) + '%', W / 2, H / 2 + 10);
+        ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '11px sans-serif';
+        ctx.fillText((d * 1.9).toFixed(1) + ' / 1.9 Mo', W / 2, H / 2 + 30);
+    } else if (p < 0.7) {
+        // Installing
+        const i = (p - 0.4) / 0.3;
+        ctx.fillStyle = '#fff'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Installation...', W / 2, H / 2 - 80);
+        ctx.font = (60 + Math.sin(i * Math.PI) * 10) + 'px sans-serif';
+        ctx.fillText('📦', W / 2, H / 2);
+        for (let j = 0; j < 8; j++) {
+            const a = i * Math.PI * 4 + j * Math.PI / 4;
+            ctx.beginPath();
+            ctx.arc(W / 2 + Math.cos(a) * 50, H / 2 + Math.sin(a) * 50 + 20, 3, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(76,175,80,' + (0.3 + Math.sin(i * 10 + j) * 0.3) + ')';
+            ctx.fill();
+        }
+    } else {
+        // Success
+        const s = ease((p - 0.7) / 0.3);
+        ctx.save();
+        ctx.translate(W / 2, H / 2 - 30); ctx.scale(s, s);
+        ctx.beginPath(); ctx.arc(0, 0, 45, 0, Math.PI * 2); ctx.fillStyle = G800; ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(-18, 2); ctx.lineTo(-5, 16); ctx.lineTo(20, -12); ctx.stroke();
+        ctx.restore();
+
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Installée avec succès !', W / 2, H / 2 + 40);
+        ctx.fillStyle = G300; ctx.font = '13px sans-serif';
+        ctx.fillText('Seulement 1.9 Mo', W / 2, H / 2 + 62);
+    }
+});
+
+// ══════════ SCENE 4 – APP MENU → SPLASH → 1st CARD  (20 – 28 s) ══════════
+S(20000, 28000, function(t) {
+    const p = t / 8000;
+    drawBg(0.88);
+
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(p < 0.5 ? "3️⃣  Ouvrez l'application" : '✨ L\'effet waouh', W / 2, 35);
+
+    const pw = 220, ph = 420, px = W / 2 - pw / 2, py = 60;
+    const scr = drawPhone(px, py, pw, ph, '#1a1a1a');
+
+    if (p < 0.4) {
+        // Home grid
+        const gP = ease(Math.min(1, p / 0.15));
+        ctx.save();
+        rr(scr.sx, scr.sy, scr.sw, scr.sh, 6); ctx.clip();
+        ctx.globalAlpha = gP;
+        const apps = ['📞', '💬', '📷', '⚙️', '🌐', '🎵', '📁', '🗓️', '🛒'];
+        const names = ['Téléphone', 'Messages', 'Caméra', 'Paramètres', 'Chrome', 'Musique', 'Fichiers', 'Agenda', 'Play Store'];
+        const cols = 3, is2 = 40, gx = (scr.sw - cols * is2) / (cols + 1), gy = 65;
+        for (let i = 0; i < apps.length; i++) {
+            const c = i % cols, r = Math.floor(i / cols);
+            const ix = scr.sx + gx + (is2 + gx) * c + is2 / 2;
+            const iy = scr.sy + 50 + r * gy;
+            ctx.font = '28px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#fff'; ctx.fillText(apps[i], ix, iy);
+            ctx.font = '8px sans-serif'; ctx.fillStyle = '#aaa'; ctx.fillText(names[i], ix, iy + 22);
+        }
+        // Plannie icon with glow
+        const plX = scr.sx + gx + is2 / 2, plY = scr.sy + 50 + 3 * gy;
+        const gr2 = 30 + Math.sin(t / 200) * 5;
+        const gw = ctx.createRadialGradient(plX, plY, 0, plX, plY, gr2);
+        gw.addColorStop(0, 'rgba(76,175,80,0.4)'); gw.addColorStop(1, 'rgba(76,175,80,0)');
+        ctx.fillStyle = gw; ctx.fillRect(plX - gr2, plY - gr2, gr2 * 2, gr2 * 2);
+        drawLogo(plX, plY, 42);
+        ctx.font = 'bold 8px sans-serif'; ctx.fillStyle = G300; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Plannie', plX, plY + 28);
+        ctx.fillText('Business', plX, plY + 37);
+        if (p > 0.1) { ctx.font = '22px sans-serif'; ctx.fillText('👆', plX + 35, plY + 5 + Math.sin(t / 250) * 4); }
+        ctx.globalAlpha = 1;
+        ctx.restore();
+    } else if (p < 0.65) {
+        // Splash screen
+        const sp = (p - 0.4) / 0.25;
+        ctx.save();
+        rr(scr.sx, scr.sy, scr.sw, scr.sh, 6); ctx.clip();
+        ctx.fillStyle = G800; ctx.fillRect(scr.sx, scr.sy, scr.sw, scr.sh);
+        const ls = ease(Math.min(1, sp / 0.5));
+        drawLogo(scr.sx + scr.sw / 2, scr.sy + scr.sh / 2 - 30, 55 * ls);
+        if (sp > 0.3) {
+            const a = ease(Math.min(1, (sp - 0.3) / 0.3));
+            ctx.globalAlpha = a;
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('Plannie Business', scr.sx + scr.sw / 2, scr.sy + scr.sh / 2 + 20);
+            ctx.font = '10px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            ctx.fillText('La vitrine de la ville', scr.sx + scr.sw / 2, scr.sy + scr.sh / 2 + 38);
+            ctx.globalAlpha = 1;
+        }
+        ctx.restore();
+    } else {
+        // First card appears in phone
+        const lp = (p - 0.65) / 0.35;
+        ctx.save();
+        rr(scr.sx, scr.sy, scr.sw, scr.sh, 6); ctx.clip();
+        ctx.fillStyle = '#0d1f12'; ctx.fillRect(scr.sx, scr.sy, scr.sw, scr.sh);
+        ctx.fillStyle = G500; ctx.fillRect(scr.sx, scr.sy, scr.sw * easeOut(Math.min(1, lp * 2)), 2);
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Articles en vitrine', scr.sx + scr.sw / 2, scr.sy + 20);
+        ctx.font = '9px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.fillText('1 / 5', scr.sx + scr.sw / 2, scr.sy + 33);
+        if (lp > 0.3) {
+            const cP = ease(Math.min(1, (lp - 0.3) / 0.4));
+            const cw = scr.sw - 20, ch = scr.sh - 70;
+            ctx.globalAlpha = cP;
+            ctx.save();
+            ctx.translate(scr.sx + 10 + cw / 2, scr.sy + 42 + ch / 2);
+            ctx.scale(cP, cP);
+            ctx.translate(-(scr.sx + 10 + cw / 2), -(scr.sy + 42 + ch / 2));
+            drawCard(scr.sx + 10, scr.sy + 42, cw, ch, fakeCards[0], t + 20000);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+        }
+        if (lp > 0.5) {
+            for (let i = 0; i < 5; i++) {
+                ctx.beginPath();
+                ctx.arc(scr.sx + scr.sw / 2 - 20 + i * 10, scr.sy + scr.sh - 12, i === 0 ? 4 : 2.5, 0, Math.PI * 2);
+                ctx.fillStyle = i === 0 ? G500 : 'rgba(76,175,80,0.3)'; ctx.fill();
+            }
+        }
+        ctx.restore();
+    }
+
+    if (p < 0.4) {
+        ctx.fillStyle = G300; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Retrouvez Plannie Business', W / 2, py + ph + 25);
+        ctx.fillText('dans votre menu Android', W / 2, py + ph + 42);
+    }
+});
+
+// ══════════ SCENE 5 – CARD SHOWCASE + SWIPE  (28 – 45 s) ══════════
+S(28000, 45000, function(t) {
+    const p = t / 17000;
+    drawBg(0.85);
+
+    // Subtle floating particles
+    for (let i = 0; i < 12; i++) {
+        ctx.beginPath();
+        ctx.arc(
+            (Math.sin(t / 1000 + i * 2) * 0.3 + 0.5) * W,
+            (Math.cos(t / 800 + i * 1.5) * 0.3 + 0.5) * H,
+            1.5, 0, Math.PI * 2
+        );
+        ctx.fillStyle = 'rgba(76,175,80,0.08)'; ctx.fill();
+    }
+
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🎨 Des cartes élégantes et intuitives', W / 2, 30);
+
+    const cW = 260, cH = 380, cY = 50;
+    const swD = 3200;
+    const ci = Math.floor((t % (swD * 5)) / swD) % 5;
+    const swP = (t % swD) / swD;
+    const cur = fakeCards[ci], nxt = fakeCards[(ci + 1) % 5];
+
+    if (swP > 0.8) {
+        const off = -(swP - 0.8) / 0.2;
+        ctx.save(); ctx.translate(off * W, 0);
+        drawCard(W / 2 - cW / 2, cY, cW, cH, cur, t + 28000);
+        ctx.restore();
+        ctx.save(); ctx.translate(off * W + W, 0);
+        drawCard(W / 2 - cW / 2, cY, cW, cH, nxt, t + 28000);
+        ctx.restore();
+    } else {
+        drawCard(W / 2 - cW / 2, cY + Math.sin(t / 800) * 3, cW, cH, cur, t + 28000);
+    }
+
+    // Swipe hint
+    if (swP < 0.35) {
+        ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('← Glissez pour découvrir →', W / 2, cY + cH + 18);
+    }
+
+    // Dots
+    for (let i = 0; i < 5; i++) {
+        ctx.beginPath();
+        ctx.arc(W / 2 - 20 + i * 10, cY + cH + 38, i === ci ? 4 : 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = i === ci ? G500 : 'rgba(76,175,80,0.3)'; ctx.fill();
+    }
+
+    // Feature hints
+    const feats = [
+        { i: '👆', t: 'Glissez vers le haut → Détails' },
+        { i: '👇', t: 'Glissez vers le bas → Actualiser' },
+        { i: '⭐', t: 'Notez et commentez les articles' }
+    ];
+    const fS = 0.2;
+    if (p > fS) {
+        const vi = Math.min(2, Math.floor((p - fS) / 0.15));
+        for (let i = 0; i <= vi; i++) {
+            ctx.globalAlpha = ease(Math.min(1, (p - fS - i * 0.15) / 0.1));
+            ctx.fillStyle = G300; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(feats[i].i + ' ' + feats[i].t, W / 2, cY + cH + 58 + i * 22);
+        }
+        ctx.globalAlpha = 1;
+    }
+});
+
+// ══════════ SCENE 6 – DETAIL PAGE  (45 – 52 s) ══════════
+S(45000, 52000, function(t) {
+    const p = t / 7000;
+    drawBg(0.85);
+
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 15px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('📋 Page de détails immersive', W / 2, 30);
+
+    const pw = 210, ph = 400, px2 = W / 2 - pw / 2, py2 = 50;
+    const scr = drawPhone(px2, py2, pw, ph, '#121212');
+
+    ctx.save();
+    rr(scr.sx, scr.sy, scr.sw, scr.sh, 6); ctx.clip();
+
+    // Image header
+    const imgH2 = scr.sh * 0.35;
+    const hIm = imgs.art0;
+    if (hIm && hIm.complete && hIm.naturalWidth) {
+        const ir = hIm.naturalWidth / hIm.naturalHeight;
+        let dw2, dh2;
+        if (ir > scr.sw / imgH2) { dh2 = imgH2; dw2 = imgH2 * ir; }
+        else { dw2 = scr.sw; dh2 = scr.sw / ir; }
+        ctx.drawImage(hIm, scr.sx + (scr.sw - dw2) / 2, scr.sy + (imgH2 - dh2) / 2, dw2, dh2);
+    } else {
+        ctx.fillStyle = '#BF360C'; ctx.fillRect(scr.sx, scr.sy, scr.sw, imgH2);
+    }
+
+    // Image gradient overlay
+    const ig = ctx.createLinearGradient(scr.sx, scr.sy, scr.sx, scr.sy + imgH2);
+    ig.addColorStop(0, 'rgba(0,0,0,0)');
+    ig.addColorStop(1, 'rgba(18,18,18,0.8)');
+    ctx.fillStyle = ig; ctx.fillRect(scr.sx, scr.sy, scr.sw, imgH2);
+
+    // Back button
+    rr(scr.sx + 8, scr.sy + 8, 28, 28, 8, 'rgba(0,0,0,0.5)');
+    ctx.fillStyle = '#fff'; ctx.font = '16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('←', scr.sx + 22, scr.sy + 22);
+
+    // Detail info
+    const dY = scr.sy + imgH2 + 10;
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('Gaufres 3 Pcs', scr.sx + 10, dY);
+    ctx.fillStyle = '#BF360C'; ctx.font = 'bold 11px sans-serif';
+    ctx.fillText('Chez Colodouce', scr.sx + 10, dY + 20);
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '10px sans-serif';
+    ctx.fillText('Lubumbashi', scr.sx + 10, dY + 35);
+
+    if (p > 0.2) {
+        ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '10px sans-serif'; ctx.textBaseline = 'top';
+        ctx.fillText('👁 142 vues', scr.sx + 10, dY + 50);
+    }
+
+    ctx.fillStyle = GOLD; ctx.font = 'bold 18px sans-serif'; ctx.textBaseline = 'top';
+    ctx.fillText('1 000 FC', scr.sx + 10, dY + 68);
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '10px sans-serif';
+    ctx.fillText('Largement disponible', scr.sx + 10, dY + 90);
+
+    // Separator
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(scr.sx + 10, dY + 105); ctx.lineTo(scr.sx + scr.sw - 10, dY + 105); ctx.stroke();
+
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textBaseline = 'top';
+    ctx.fillText('Description', scr.sx + 10, dY + 115);
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '9px sans-serif';
+    ctx.fillText('Délicieuses gaufres artisanales', scr.sx + 10, dY + 130);
+    ctx.fillText('fraîchement préparées avec amour.', scr.sx + 10, dY + 142);
+
+    // Comments section
+    if (p > 0.4) {
+        const cA = ease(Math.min(1, (p - 0.4) / 0.2));
+        ctx.globalAlpha = cA;
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(scr.sx + 10, dY + 160); ctx.lineTo(scr.sx + scr.sw - 10, dY + 160); ctx.stroke();
+
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textBaseline = 'top';
+        ctx.fillText('Avis & Commentaires', scr.sx + 10, dY + 172);
+        ctx.fillStyle = '#BF360C'; ctx.font = 'bold 16px sans-serif';
+        ctx.fillText('4.5', scr.sx + 10, dY + 192);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '10px sans-serif';
+        ctx.fillText('/ 5  (12 avis)', scr.sx + 40, dY + 195);
+
+        for (let i = 0; i < 5; i++) drawStar(scr.sx + scr.sw - 55 + i * 10, dY + 195, 5, i < 4);
+
+        // Comment bubble
+        if (p > 0.55) {
+            rr(scr.sx + 8, dY + 210, scr.sw - 16, 40, 8, '#1e1e1e');
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 9px sans-serif'; ctx.textBaseline = 'top';
+            ctx.fillText('Marie K.', scr.sx + 16, dY + 218);
+            ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '8px sans-serif';
+            ctx.fillText('Trop bonnes ces gaufres ! 😍', scr.sx + 16, dY + 232);
+            for (let i = 0; i < 5; i++) drawStar(scr.sx + scr.sw - 65 + i * 9, dY + 220, 4, i < 5);
+        }
+
+        ctx.globalAlpha = 1;
+    }
+
+    ctx.restore();
+
+    // Bottom hint
+    ctx.fillStyle = G300; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Glissez ↓ sur les détails pour revenir', W / 2, py2 + ph + 22);
+    ctx.fillText('au slider des articles', W / 2, py2 + ph + 38);
+});
+
+// ══════════ SCENE 7 – FINAL CTA (simple & lisible)  (52 – 62 s) ══════════
+S(52000, 62000, function(t) {
+    var p = t / 10000;
+    if (p > 1) p = 1;
+
+    // 1) Fond noir solide
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    // 2) Logo au centre-haut
+    var logoScale = p < 0.1 ? (p / 0.1) : 1;
+    if (logoScale > 0) drawLogo(W / 2, 90, 70 * logoScale);
+
+    // 3) Titre "Plannie Business"
+    if (p > 0.05) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 28px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Plannie Business', W / 2, 155);
+    }
+
+    // 4) Sous-titre
+    if (p > 0.1) {
+        ctx.fillStyle = '#81C784';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('La vitrine de la ville', W / 2, 185);
+    }
+
+    // 5) Badge doré
+    if (p > 0.15) {
+        rr(W / 2 - 105, 210, 210, 34, 17, '#FFC107');
+        ctx.fillStyle = '#000000';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('📱 Disponible sur Android', W / 2, 227);
+    }
+
+    // 6) Étapes — texte blanc simple
+    if (p > 0.25) {
+        ctx.font = '13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('1️⃣  Allez sur :', W / 2, 280);
+    }
+    if (p > 0.30) {
+        ctx.fillStyle = '#66BB6A';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🌐  ' + SITE_URL, W / 2, 312);
+    }
+    if (p > 0.35) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText("2️⃣  Cliquez : 📲 Télécharger l'apk", W / 2, 344);
+    }
+    if (p > 0.40) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('3️⃣  "Télécharger quand même"', W / 2, 376);
+    }
+    if (p > 0.45) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('4️⃣  Installez et profitez ! 🎉', W / 2, 408);
+    }
+
+    // 7) Encadré sécurité
+    if (p > 0.6) {
+        ctx.strokeStyle = '#4CAF50';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(25, 440, W - 50, 70);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🔒 Aucune autorisation sensible demandée', W / 2, 457);
+        ctx.fillText('✅ Validé par Google Play Protect', W / 2, 475);
+        ctx.fillText('📦 Seulement 1.9 Mo • Android 8.0+', W / 2, 493);
+    }
+
+    // 8) CTA clignotant
+    if (p > 0.7) {
+        ctx.fillStyle = '#FFC107';
+        ctx.font = 'bold 18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Téléchargez maintenant ! 🚀', W / 2, 555);
+    }
+
+    // 9) Footer
+    ctx.fillStyle = '#666666';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('© Plannie Business 2026 – by Havila', W / 2, 620);
+});
+
+
+// ============================================================
+//  RENDER ENGINE – aggressive state reset every frame
+// ============================================================
+function renderFrame(timeMs) {
+    // Pop ALL leaked save/clip states (restore on empty stack is a no-op)
+    for (var _r = 0; _r < 30; _r++) ctx.restore();
+    // Push one clean state so scenes can use save/restore freely
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    for (var _i = 0; _i < scenes.length; _i++) {
+        var s = scenes[_i];
+        if (timeMs >= s.start && timeMs < s.end) {
+            try { s.draw(timeMs - s.start); } catch (e) { console.warn('Scene error:', e); }
+            return;
+        }
+    }
+    if (scenes.length > 0) {
+        var last = scenes[scenes.length - 1];
+        try { last.draw(last.end - last.start - 1); } catch (e) { console.warn('Final error:', e); }
+    }
+}
+
+// ============================================================
+//  MAIN LOOP (pub14 pattern)
+// ============================================================
+let isRunning = false;
+
+function runAd(download) {
+    if (isRunning) return;
+    if (imgsLoaded < imgsTotal) {
+        document.getElementById('status').textContent = 'Chargement des images...';
+        setTimeout(function() { runAd(download); }, 500);
+        return;
+    }
+    isRunning = true;
+    const btnP = document.getElementById('btnPlay');
+    const btnD = document.getElementById('btnDl');
+    const st = document.getElementById('status');
+    btnP.disabled = true;
+    btnD.disabled = true;
+
+    initAudio(download);
+
+    let recorder = null, chunks = [];
+
+    if (download) {
+        st.textContent = 'Enregistrement en cours... ~1 min 2 sec';
+        const vs = cv.captureStream(FPS);
+        if (audioDest) audioDest.stream.getAudioTracks().forEach(function(tr) { vs.addTrack(tr); });
+        const mt = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+            ? 'video/webm;codecs=vp9,opus'
+            : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+                ? 'video/webm;codecs=vp8,opus'
+                : 'video/webm';
+        recorder = new MediaRecorder(vs, { mimeType: mt, videoBitsPerSecond: 3000000 });
+        recorder.ondataavailable = function(e) { if (e.data.size > 0) chunks.push(e.data); };
+        recorder.onstop = function() {
+            const blob = new Blob(chunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'Plannie_Business_Pub15_App_Android.webm';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
+            st.textContent = '✅ Vidéo téléchargée !';
+        };
+        recorder.start();
+    } else {
+        st.textContent = '▶ Lecture en cours...';
+    }
+
+    // Schedule audio
+    playChime(0.5);
+    playSuccess(5);
+    playPulse(13);
+    playSwipe(15);
+    playSuccess(18);
+    playChime(20);
+    playWow(25);
+    playSwipe(29);
+    playSwipe(32);
+    playSwipe(35);
+    playSwipe(38);
+    playSwipe(41);
+    playPulse(45);
+    playChime(52);
+    playWow(56);
+
+    let startTime = null;
+    function loop(ts) {
+        if (!startTime) startTime = ts;
+        const elapsed = ts - startTime;
+        renderFrame(Math.min(elapsed, DURATION - 1));
+        if (elapsed < DURATION + 500) {
+            requestAnimationFrame(loop);
+        } else {
+            if (recorder && recorder.state === 'recording') recorder.stop();
+            isRunning = false;
+            btnP.disabled = false;
+            btnD.disabled = false;
+            if (!download) st.textContent = '✅ Lecture terminée';
+        }
+    }
+    requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
