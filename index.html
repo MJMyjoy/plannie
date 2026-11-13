@@ -454,6 +454,18 @@ function renderWelcome() {
                class="btn btn-secondary scale-in" style="animation-delay:.5s;margin-top:12px;text-decoration:none">
                 💼&nbsp; Accéder à Plannie Business
             </a>
+            <div class="scale-in" style="animation-delay:.7s;margin-top:20px;display:flex;flex-direction:column;align-items:center;gap:10px">
+                <a href="/apks/plannie.apk" download
+                   style="color:var(--g800);font-size:14px;text-decoration:none;display:flex;align-items:center;gap:6px"
+                   onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
+                    📲 Télécharger l'apk de Plannie
+                </a>
+                <a href="/apks/plannie_business.apk" download
+                   style="color:var(--g800);font-size:14px;text-decoration:none;display:flex;align-items:center;gap:6px"
+                   onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
+                    📲 Télécharger l'apk de Plannie Business
+                </a>
+            </div>
         </div>`;
     document.getElementById('bs').onclick = () => { S.phase='askCount'; render(); };
 }
