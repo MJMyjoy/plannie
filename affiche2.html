@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plannie Business – Affiche Premium Story-time</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;gap:16px;padding:20px}
+canvas{border-radius:12px;box-shadow:0 0 60px rgba(76,175,80,.2);max-width:95vw;max-height:90vh}
+.btn{padding:14px 32px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;display:inline-flex;align-items:center;gap:8px;background:#2E7D32;color:#fff}
+.btn:hover{background:#388E3C;transform:scale(1.02)}
+.status{color:rgba(255,255,255,.6);font-size:13px;min-height:20px;text-align:center}
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1528"></canvas>
+<button class="btn" id="btnDl" onclick="downloadPoster()">📥 Télécharger l'affiche (PNG)</button>
+<div class="status" id="status"></div>
+
+<script>
+const W = 1080, H = 1528;
+const G900='#1B5E20',G800='#2E7D32',G500='#4CAF50',G400='#66BB6A',G300='#81C784',G200='#A5D6A7';
+const GOLD='#FFC107',DARK_BG='#0D1F12';
+
+const bgImg = new Image();
+const logoImg = new Image();
+let loadCount = 0;
+
+function onLoad() {
+    loadCount++;
+    if (loadCount >= 2) drawPoster();
+}
+
+// Safe load (avoid CORS taint)
+function loadSafe(img, src) {
+    const tmp = new Image();
+    tmp.onload = function() {
+        const tc = document.createElement('canvas');
+        tc.width = tmp.naturalWidth; tc.height = tmp.naturalHeight;
+        tc.getContext('2d').drawImage(tmp, 0, 0);
+        try {
+            img.src = tc.toDataURL('image/png');
+            img.onload = onLoad; img.onerror = onLoad;
+        } catch(e) {
+            img.src = src; img.onload = onLoad; img.onerror = onLoad;
+        }
+    };
+    tmp.onerror = function() { img.src = src; img.onload = onLoad; img.onerror = onLoad; };
+    tmp.src = src;
+}
+
+loadSafe(bgImg, 'img/file_02.png');
+loadSafe(logoImg, 'img/plannie_logo_1792797585289.jpg');
+
+// ── Helpers ──
+function rr(c, x, y, w, h, r, fill, stroke, lw) {
+    c.beginPath();
+    c.moveTo(x+r,y); c.lineTo(x+w-r,y); c.quadraticCurveTo(x+w,y,x+w,y+r);
+    c.lineTo(x+w,y+h-r); c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    c.lineTo(x+r,y+h); c.quadraticCurveTo(x,y+h,x,y+h-r);
+    c.lineTo(x,y+r); c.quadraticCurveTo(x,y,x+r,y); c.closePath();
+    if (fill) { c.fillStyle = fill; c.fill(); }
+    if (stroke) { c.strokeStyle = stroke; c.lineWidth = lw || 2; c.stroke(); }
+}
+
+function coverImg(c, img, x, y, w, h) {
+    if (!img || !img.complete || !img.naturalWidth) return;
+    const ar = img.naturalWidth / img.naturalHeight, cr = w / h;
+    let sw, sh;
+    if (ar > cr) { sh = h; sw = sh * ar; } else { sw = w; sh = sw / ar; }
+    c.drawImage(img, x + (w - sw) / 2, y + (h - sh) / 2, sw, sh);
+}
+
+function wrapCenter(c, text, cx, y, maxW, lh) {
+    const words = text.split(' '); let line = ''; const lines = [];
+    for (const w of words) {
+        const t = line + w + ' ';
+        if (c.measureText(t).width > maxW && line !== '') { lines.push(line.trim()); line = w + ' '; }
+        else { line = t; }
+    }
+    lines.push(line.trim());
+    lines.forEach(function(l, i) { c.fillText(l, cx, y + i * lh); });
+    return y + lines.length * lh;
+}
+
+// ── Draw poster ──
+function drawPoster() {
+    const cv = document.getElementById('c');
+    const c = cv.getContext('2d');
+
+    // === BACKGROUND ===
+    c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
+    coverImg(c, bgImg, 0, 0, W, H);
+    // Dark gradient overlay
+    const bgGrad = c.createLinearGradient(0, 0, 0, H);
+    bgGrad.addColorStop(0, 'rgba(0,0,0,0.45)');
+    bgGrad.addColorStop(0.3, 'rgba(13,31,18,0.75)');
+    bgGrad.addColorStop(0.5, 'rgba(13,31,18,0.88)');
+    bgGrad.addColorStop(1, 'rgba(0,0,0,0.95)');
+    c.fillStyle = bgGrad; c.fillRect(0, 0, W, H);
+
+    // === HEADER – Logo + Title ===
+    // Top green ribbon
+    const ribbonGrad = c.createLinearGradient(0, 0, W, 0);
+    ribbonGrad.addColorStop(0, G900); ribbonGrad.addColorStop(0.5, G800); ribbonGrad.addColorStop(1, G900);
+    c.fillStyle = ribbonGrad; c.fillRect(0, 0, W, 90);
+    c.fillStyle = GOLD; c.fillRect(0, 88, W, 3);
+
+    // Logo circle
+    if (logoImg.complete && logoImg.naturalWidth) {
+        c.save();
+        c.beginPath(); c.arc(80, 45, 32, 0, Math.PI * 2); c.clip();
+        c.drawImage(logoImg, 48, 13, 64, 64);
+        c.restore();
+        c.beginPath(); c.arc(80, 45, 33, 0, Math.PI * 2);
+        c.strokeStyle = 'rgba(255,255,255,0.4)'; c.lineWidth = 2; c.stroke();
+    }
+
+    c.fillStyle = '#fff'; c.font = '800 32px "Segoe UI",sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle';
+    c.fillText('Plannie', 125, 36);
+    c.fillStyle = GOLD; c.fillText('Business', 125, 65);
+    c.fillStyle = 'rgba(255,255,255,0.5)'; c.font = '400 18px "Segoe UI",sans-serif'; c.textAlign = 'right';
+    c.fillText('plannie.onrender.com', W - 40, 45);
+
+    // === SECTION 1 – WhatsApp-like concept ===
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+
+    // "Comme un Statut WhatsApp" badge
+    const badgeY = 130;
+    rr(c, W/2 - 260, badgeY, 520, 55, 28, '#25D366');
+    c.fillStyle = '#fff'; c.font = '800 24px "Segoe UI",sans-serif';
+    c.fillText('📱 Comme un Statut WhatsApp !', W/2, badgeY + 28);
+
+    // Explanation text
+    c.fillStyle = '#fff'; c.font = '400 22px "Segoe UI",sans-serif';
+    const exY = wrapCenter(c, "Votre article dans la vitrine de Plannie fonctionne comme un statut WhatsApp : il n'y reste pas éternellement.", W/2, 225, W - 120, 30);
+
+    // Visual: timeline with clock icons
+    const tlY = exY + 25;
+    const tlW = W - 140;
+    const tlX = 70;
+
+    // Timeline bar
+    rr(c, tlX, tlY + 25, tlW, 8, 4, 'rgba(76,175,80,0.3)');
+    // Filled portion (5 days)
+    rr(c, tlX, tlY + 25, tlW * 0.35, 8, 4, G500);
+    // Faded portion
+    const fadeGrad = c.createLinearGradient(tlX + tlW * 0.35, 0, tlX + tlW * 0.7, 0);
+    fadeGrad.addColorStop(0, G500); fadeGrad.addColorStop(1, 'rgba(76,175,80,0.05)');
+    c.fillStyle = fadeGrad; c.fillRect(tlX + tlW * 0.35, tlY + 25, tlW * 0.35, 8);
+
+    // Timeline markers
+    const markers = [
+        { pos: 0, label: '12h', sub: 'Minimum' },
+        { pos: 0.35, label: '5 jours', sub: 'GRATUIT' },
+        { pos: 0.55, label: '1 sem.', sub: '1$' },
+        { pos: 0.7, label: '2 sem.', sub: '2$' },
+        { pos: 0.85, label: '3 sem.', sub: '3$' },
+    ];
+    markers.forEach(function(m) {
+        const mx = tlX + tlW * m.pos;
+        // Dot
+        c.beginPath(); c.arc(mx, tlY + 29, m.pos <= 0.35 ? 10 : 8, 0, Math.PI * 2);
+        c.fillStyle = m.pos <= 0.35 ? G400 : GOLD; c.fill();
+        c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke();
+        // Label above
+        c.fillStyle = '#fff'; c.font = '700 16px "Segoe UI",sans-serif'; c.textAlign = 'center';
+        c.fillText(m.label, mx, tlY + 5);
+        // Sub below
+        c.fillStyle = m.pos === 0.35 ? G300 : (m.pos === 0 ? 'rgba(255,255,255,0.5)' : GOLD);
+        c.font = m.pos === 0.35 ? '800 15px "Segoe UI",sans-serif' : '600 14px "Segoe UI",sans-serif';
+        c.fillText(m.sub, mx, tlY + 56);
+    });
+
+    // === SECTION 2 – FREE publication ===
+    const freeY = tlY + 90;
+    rr(c, 40, freeY, W - 80, 100, 20, 'rgba(46,125,50,0.15)', G500 + '55', 2);
+    // Green check
+    c.fillStyle = G400; c.font = '800 36px "Segoe UI",sans-serif'; c.textAlign = 'left';
+    c.fillText('✅', 70, freeY + 50);
+    c.fillStyle = '#fff'; c.font = '700 24px "Segoe UI",sans-serif';
+    c.fillText('La publication reste toujours GRATUITE', 125, freeY + 38);
+    c.fillStyle = G300; c.font = '400 20px "Segoe UI",sans-serif';
+    c.fillText('En mode gratuit, votre article est affiché pendant 5 jours max.', 125, freeY + 70);
+
+    // === SECTION 3 – Premium Story-time ===
+    const premY = freeY + 130;
+
+    // Premium banner
+    const premGrad = c.createLinearGradient(0, premY, W, premY);
+    premGrad.addColorStop(0, '#1a1a2e'); premGrad.addColorStop(0.5, '#16213e'); premGrad.addColorStop(1, '#1a1a2e');
+    rr(c, 30, premY, W - 60, 80, 20, null);
+    c.fillStyle = premGrad; c.fill();
+    // Gold border
+    rr(c, 30, premY, W - 60, 80, 20, null, GOLD, 3);
+
+    // Crown + title
+    c.fillStyle = GOLD; c.font = '800 32px "Segoe UI",sans-serif'; c.textAlign = 'center';
+    c.fillText('👑  Plannie Premium Story-time', W/2, premY + 42);
+    c.fillStyle = 'rgba(255,255,255,0.6)'; c.font = '400 18px "Segoe UI",sans-serif';
+    c.fillText('Boostez votre visibilité encore plus longtemps !', W/2, premY + 68);
+
+    // === PRICING CARDS ===
+    const cardsY = premY + 110;
+    const cardW = (W - 100 - 30) / 4;  // 4 cards with gaps
+    const cardH = 260;
+    const plans = [
+        { dur: '12h – 5J', price: '0$', label: 'GRATUIT', color: G800, accent: G400, icon: '🆓', highlight: false },
+        { dur: '1 Semaine', price: '1$', label: '7 jours', color: '#1565C0', accent: '#42A5F5', icon: '⏱️', highlight: false },
+        { dur: '2 Semaines', price: '2$', label: '14 jours', color: '#6A1B9A', accent: '#AB47BC', icon: '🚀', highlight: true },
+        { dur: '3 Semaines', price: '3$', label: '21 jours', color: '#E65100', accent: '#FF9800', icon: '🔥', highlight: false },
+    ];
+
+    plans.forEach(function(plan, i) {
+        const cx = 50 + i * (cardW + 10);
+
+        // Card shadow
+        rr(c, cx + 4, cardsY + 4, cardW, cardH, 18, 'rgba(0,0,0,0.4)');
+
+        // Card bg
+        const cardGrad = c.createLinearGradient(cx, cardsY, cx, cardsY + cardH);
+        cardGrad.addColorStop(0, plan.color); cardGrad.addColorStop(1, plan.color + 'CC');
+        rr(c, cx, cardsY, cardW, cardH, 18, cardGrad);
+
+        // Highlight glow for best value
+        if (plan.highlight) {
+            c.save(); c.shadowColor = plan.accent; c.shadowBlur = 25;
+            rr(c, cx, cardsY, cardW, cardH, 18, null, GOLD, 3);
+            c.restore();
+            // "Populaire" badge
+            rr(c, cx + cardW/2 - 55, cardsY - 14, 110, 28, 14, GOLD);
+            c.fillStyle = '#000'; c.font = '800 14px "Segoe UI",sans-serif'; c.textAlign = 'center';
+            c.fillText('⭐ POPULAIRE', cx + cardW/2, cardsY + 1);
+        }
+
+        // Icon
+        c.font = '48px "Segoe UI",sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillText(plan.icon, cx + cardW/2, cardsY + 50);
+
+        // Duration
+        c.fillStyle = '#fff'; c.font = '700 18px "Segoe UI",sans-serif';
+        c.fillText(plan.dur, cx + cardW/2, cardsY + 95);
+
+        // Price circle
+        const priceY = cardsY + 155;
+        c.beginPath(); c.arc(cx + cardW/2, priceY, 40, 0, Math.PI * 2);
+        c.fillStyle = 'rgba(255,255,255,0.15)'; c.fill();
+        c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke();
+        c.fillStyle = '#fff'; c.font = '900 36px "Segoe UI",sans-serif';
+        c.fillText(plan.price, cx + cardW/2, priceY + 2);
+
+        // Label
+        c.fillStyle = plan.accent; c.font = '600 15px "Segoe UI",sans-serif';
+        c.fillText(plan.label, cx + cardW/2, cardsY + 220);
+
+        // Bottom bar
+        rr(c, cx + 15, cardsY + cardH - 10, cardW - 30, 4, 2, plan.accent);
+    });
+
+    // === SECTION 4 – HOW IT WORKS ===
+    const howY = cardsY + cardH + 40;
+
+    c.fillStyle = '#fff'; c.font = '800 28px "Segoe UI",sans-serif'; c.textAlign = 'center';
+    c.fillText('📋  Comment ça marche ?', W/2, howY + 15);
+
+    const steps = [
+        { num: '1', icon: '📝', title: 'Remplissez le formulaire', desc: 'Soumettez votre article et choisissez la durée de visibilité souhaitée.' },
+        { num: '2', icon: '✅', title: 'Validation par Plannie', desc: "Nous validons votre article et vous envoyons un message de confirmation." },
+        { num: '3', icon: '💳', title: 'Payement (si > 5 jours)', desc: "Si votre durée dépasse 5 jours, nous vous présentons les options de payement." },
+        { num: '4', icon: '🌟', title: 'Votre article brille !', desc: "Votre article apparaît dans la vitrine pendant la durée choisie." },
+    ];
+
+    const stepY = howY + 45;
+    const stepW = (W - 100) / 4;
+
+    steps.forEach(function(step, i) {
+        const sx = 50 + i * stepW;
+        const scx = sx + stepW / 2;
+
+        // Step card bg
+        rr(c, sx + 5, stepY, stepW - 10, 190, 16, 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.1)', 1);
+
+        // Number circle
+        c.beginPath(); c.arc(scx, stepY + 30, 20, 0, Math.PI * 2);
+        c.fillStyle = G800; c.fill();
+        c.strokeStyle = G400; c.lineWidth = 2; c.stroke();
+        c.fillStyle = '#fff'; c.font = '900 20px "Segoe UI",sans-serif'; c.textAlign = 'center';
+        c.fillText(step.num, scx, stepY + 32);
+
+        // Icon
+        c.font = '36px "Segoe UI",sans-serif';
+        c.fillText(step.icon, scx, stepY + 72);
+
+        // Title
+        c.fillStyle = '#fff'; c.font = '700 16px "Segoe UI",sans-serif';
+        c.fillText(step.title, scx, stepY + 108);
+
+        // Description
+        c.fillStyle = 'rgba(255,255,255,0.65)'; c.font = '400 14px "Segoe UI",sans-serif';
+        wrapCenter(c, step.desc, scx, stepY + 132, stepW - 30, 18);
+
+        // Connector arrow (except last)
+        if (i < 3) {
+            c.fillStyle = G400; c.font = '24px "Segoe UI",sans-serif';
+            c.fillText('→', sx + stepW - 2, stepY + 70);
+        }
+    });
+
+    // === SECTION 5 – Key Benefits ===
+    const benY = stepY + 220;
+    const benefits = [
+        { icon: '🔒', text: 'Aucune donnée sensible demandée' },
+        { icon: '📱', text: 'Application disponible sur Android' },
+        { icon: '💰', text: 'Publication toujours gratuite' },
+        { icon: '⚡', text: 'Payement simple par Mobile Money' },
+    ];
+
+    rr(c, 40, benY, W - 80, 90, 16, 'rgba(46,125,50,0.1)', 'rgba(76,175,80,0.2)', 1);
+
+    // 2 rows × 2 items
+    for (var row = 0; row < 2; row++) {
+        for (var col = 0; col < 2; col++) {
+            var idx = row * 2 + col;
+            var b = benefits[idx];
+            var bx = 80 + col * ((W - 160) / 2);
+            var by = benY + 22 + row * 35;
+            c.fillStyle = '#fff'; c.font = '20px "Segoe UI",sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle';
+            c.fillText(b.icon + '  ' + b.text, bx, by);
+        }
+    }
+
+    // === FOOTER ===
+    const footY = H - 100;
+    c.fillStyle = G900; c.fillRect(0, footY, W, 100);
+    c.fillStyle = GOLD; c.fillRect(0, footY, W, 3);
+
+    // Logo in footer
+    if (logoImg.complete && logoImg.naturalWidth) {
+        c.save(); c.beginPath(); c.arc(80, footY + 50, 25, 0, Math.PI * 2); c.clip();
+        c.drawImage(logoImg, 55, footY + 25, 50, 50); c.restore();
+    }
+
+    c.fillStyle = '#fff'; c.font = '700 22px "Segoe UI",sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle';
+    c.fillText('Plannie Business', 120, footY + 38);
+    c.fillStyle = G300; c.font = '400 16px "Segoe UI",sans-serif';
+    c.fillText('La vitrine de la ville • Lubumbashi, RD Congo', 120, footY + 62);
+
+    c.fillStyle = 'rgba(255,255,255,0.5)'; c.font = '400 14px "Segoe UI",sans-serif'; c.textAlign = 'right';
+    c.fillText('© Plannie Business 2026 – by Havila', W - 40, footY + 38);
+    c.fillStyle = GOLD; c.font = '600 16px "Segoe UI",sans-serif';
+    c.fillText('plannie.onrender.com', W - 40, footY + 62);
+
+    document.getElementById('status').textContent = 'Affiche prête ! Cliquez pour télécharger.';
+}
+
+function downloadPoster() {
+    const cv = document.getElementById('c');
+    try {
+        const link = document.createElement('a');
+        link.download = 'Plannie_Premium_Story-time.png';
+        link.href = cv.toDataURL('image/png');
+        link.click();
+        document.getElementById('status').textContent = '✅ Image PNG téléchargée !';
+    } catch (e) {
+        document.getElementById('status').textContent = '❌ Erreur: ' + e.message;
+    }
+}
+</script>
+</body>
+</html>
