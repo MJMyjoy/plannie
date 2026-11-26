@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plannie Business – Affiche Premium Story-time (v2)</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;gap:16px;padding:20px}
+canvas{border-radius:12px;box-shadow:0 0 60px rgba(76,175,80,.2);max-width:95vw;max-height:90vh}
+.btn{padding:14px 32px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;display:inline-flex;align-items:center;gap:8px;background:#2E7D32;color:#fff}
+.btn:hover{background:#388E3C;transform:scale(1.02)}
+.status{color:rgba(255,255,255,.6);font-size:13px;min-height:20px;text-align:center}
+</style>
+</head>
+<body>
+<canvas id="c" width="2480" height="3508"></canvas>
+<button class="btn" onclick="downloadPoster()">📥 Télécharger l'affiche (PNG)</button>
+<div class="status" id="status"></div>
+
+<script>
+const W=2480, H=3508;
+const LW=1080, LH=1528; // logical dimensions (A4 ratio)
+const S=W/LW; // scale factor ≈ 2.3x
+const G900='#1B5E20',G800='#2E7D32',G500='#4CAF50',G400='#66BB6A',G300='#81C784';
+const GOLD='#FFC107',DARK='#0D1F12';
+const OY=225; // offset vertical pour combler le vide en bas
+
+const bgImg=new Image(), logoImg=new Image();
+let lc=0;
+function ol(){lc++;if(lc>=2)draw();}
+function ls(img,src){
+    const t=new Image();
+    t.onload=function(){const tc=document.createElement('canvas');tc.width=t.naturalWidth;tc.height=t.naturalHeight;tc.getContext('2d').drawImage(t,0,0);try{img.src=tc.toDataURL('image/png');img.onload=ol;img.onerror=ol;}catch(e){img.src=src;img.onload=ol;img.onerror=ol;}};
+    t.onerror=function(){img.src=src;img.onload=ol;img.onerror=ol;};t.src=src;
+}
+ls(bgImg,'img/file_publicite.png');
+ls(logoImg,'img/plannie_logo_1792797585289.jpg');
+
+// helpers
+function rr(c,x,y,w,h,r,f,s,lw){
+    c.beginPath();c.moveTo(x+r,y);c.lineTo(x+w-r,y);c.quadraticCurveTo(x+w,y,x+w,y+r);
+    c.lineTo(x+w,y+h-r);c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);c.lineTo(x+r,y+h);
+    c.quadraticCurveTo(x,y+h,x,y+h-r);c.lineTo(x,y+r);c.quadraticCurveTo(x,y,x+r,y);c.closePath();
+    if(f){c.fillStyle=f;c.fill();}if(s){c.strokeStyle=s;c.lineWidth=lw||2;c.stroke();}
+}
+function covImg(c,img,x,y,w,h){
+    if(!img||!img.complete||!img.naturalWidth)return;
+    var ar=img.naturalWidth/img.naturalHeight,cr=w/h,sw,sh;
+    if(ar>cr){sh=h;sw=sh*ar;}else{sw=w;sh=sw/ar;}
+    c.drawImage(img,x+(w-sw)/2,y+(h-sh)/2,sw,sh);
+}
+
+function draw(){
+    var cv=document.getElementById('c'),c=cv.getContext('2d');
+
+    // Scale everything up for HD print (300 DPI A4)
+    c.scale(S, S);
+
+    // ═══ BG ═══
+    c.fillStyle='#000';c.fillRect(0,0,LW,LH);
+    covImg(c,bgImg,0,0,LW,LH);
+    // cinematic gradient overlay
+    var g=c.createLinearGradient(0,0,0,LH);
+    g.addColorStop(0,'rgba(0,0,0,0.3)');
+    g.addColorStop(0.22,'rgba(13,31,18,0.65)');
+    g.addColorStop(0.4,'rgba(13,31,18,0.92)');
+    g.addColorStop(1,'rgba(0,0,0,0.97)');
+    c.fillStyle=g;c.fillRect(0,0,LW,LH);
+
+    // ═══ LOGO + TITLE (top) ═══
+    if(logoImg.complete&&logoImg.naturalWidth){
+        c.save();c.beginPath();c.arc(LW/2,55,38,0,Math.PI*2);c.clip();
+        c.drawImage(logoImg,LW/2-38,17,76,76);c.restore();
+        c.beginPath();c.arc(LW/2,55,40,0,Math.PI*2);
+        c.strokeStyle='rgba(255,255,255,0.3)';c.lineWidth=2;c.stroke();
+    }
+    c.textAlign='center';c.textBaseline='middle';
+    c.fillStyle='#fff';c.font='800 34px "Segoe UI",sans-serif';
+    c.fillText('Plannie',LW/2-65,120);
+    c.fillStyle=GOLD;c.fillText('Business',LW/2+65,120);
+
+    // ═══ CROWN + HEADLINE ═══
+    c.font='60px "Segoe UI Emoji","Segoe UI",sans-serif';
+    c.fillText('👑',LW/2,185+OY);
+
+    c.fillStyle='#fff';c.font='900 42px "Segoe UI",sans-serif';
+    c.fillText('Premium Story-time',LW/2,240+OY);
+
+    c.fillStyle=G300;c.font='400 22px "Segoe UI",sans-serif';
+    c.fillText('Boostez la visibilité de vos articles',LW/2,278+OY);
+
+    // ═══ VISUAL GAUGE — the hero element ═══
+    var gaugeY=320+OY, gaugeH=130, gaugeX=60, gaugeW=LW-120;
+
+    // Dark panel behind gauge
+    rr(c,gaugeX-20,gaugeY-15,gaugeW+40,gaugeH+30,20,'rgba(0,0,0,0.5)','rgba(255,255,255,0.08)',1);
+
+    // Gauge track
+    var trackY=gaugeY+45, trackH=22;
+    rr(c,gaugeX,trackY,gaugeW,trackH,11,'rgba(255,255,255,0.08)');
+
+    // Colored segments
+    var segs=[
+        {from:0,to:0.24,color:G500},      // gratuit
+        {from:0.24,to:0.47,color:'#1565C0'},  // 1$
+        {from:0.47,to:0.71,color:'#7B1FA2'},  // 2$
+        {from:0.71,to:1.0,color:'#E65100'},   // 3$
+    ];
+    segs.forEach(function(s){
+        var sx=gaugeX+gaugeW*s.from, sw=gaugeW*(s.to-s.from);
+        var sg=c.createLinearGradient(sx,0,sx+sw,0);
+        sg.addColorStop(0,s.color);sg.addColorStop(1,s.color+'BB');
+        rr(c,sx,trackY,sw,trackH, s.from===0?11:0, sg);
+        // right cap only for last
+        if(s.to===1) rr(c,sx,trackY,sw,trackH,11,sg);
+    });
+    // redraw with proper rounding
+    c.save();
+    rr(c,gaugeX,trackY,gaugeW,trackH,11);c.clip();
+    segs.forEach(function(s){
+        var sx=gaugeX+gaugeW*s.from, sw=gaugeW*(s.to-s.from);
+        c.fillStyle=s.color;c.fillRect(sx,trackY,sw,trackH);
+    });
+    c.restore();
+
+    // Markers on gauge
+    var marks=[
+        {pos:0.0, top:'12h',  bot:'',      dotCol:G400},
+        {pos:0.24,top:'5 jours',bot:'GRATUIT',dotCol:G400},
+        {pos:0.47,top:'1 sem.',bot:'1$',    dotCol:'#42A5F5'},
+        {pos:0.71,top:'2 sem.',bot:'2$',    dotCol:'#AB47BC'},
+        {pos:1.0, top:'3 sem.',bot:'3$',    dotCol:'#FF9800'},
+    ];
+    marks.forEach(function(m){
+        var mx=gaugeX+gaugeW*m.pos;
+        // diamond marker
+        c.save();c.translate(mx,trackY+trackH/2);c.rotate(Math.PI/4);
+        rr(c,-8,-8,16,16,3,m.dotCol,'#fff',2);
+        c.restore();
+        // top label
+        c.fillStyle='#fff';c.font='700 18px "Segoe UI",sans-serif';c.textAlign='center';
+        c.fillText(m.top,mx,gaugeY+15);
+        // bottom label
+        if(m.bot){
+            c.fillStyle=m.pos<=0.24?G300:GOLD;
+            c.font=m.pos<=0.24?'800 18px "Segoe UI",sans-serif':'900 22px "Segoe UI",sans-serif';
+            c.fillText(m.bot,mx,trackY+trackH+28);
+        }
+    });
+
+    // ═══ PRICING CARDS — big, bold, visual ═══
+    var cardsY=gaugeY+gaugeH+65;
+    var gap=20, cw=(LW-80-gap*3)/4, ch=320;
+    var plans=[
+        {dur:'5 Jours',price:'0',unit:'$',sub:'Gratuit',color:G800,glow:G400,icon:'🆓',pop:false},
+        {dur:'1 Semaine',price:'1',unit:'$',sub:'7 jours',color:'#1565C0',glow:'#42A5F5',icon:'⏱️',pop:false},
+        {dur:'2 Semaines',price:'2',unit:'$',sub:'14 jours',color:'#7B1FA2',glow:'#CE93D8',icon:'🚀',pop:true},
+        {dur:'3 Semaines',price:'3',unit:'$',sub:'21 jours',color:'#E65100',glow:'#FF9800',icon:'🔥',pop:false},
+    ];
+
+    plans.forEach(function(p,i){
+        var cx=40+i*(cw+gap);
+
+        // Shadow
+        rr(c,cx+5,cardsY+5,cw,ch,22,'rgba(0,0,0,0.5)');
+
+        // Card gradient
+        var cg=c.createLinearGradient(cx,cardsY,cx,cardsY+ch);
+        cg.addColorStop(0,p.color);cg.addColorStop(0.6,p.color+'DD');cg.addColorStop(1,'#000');
+        rr(c,cx,cardsY,cw,ch,22,cg);
+
+        // Popular glow
+        if(p.pop){
+            c.save();c.shadowColor=p.glow;c.shadowBlur=30;
+            rr(c,cx,cardsY,cw,ch,22,null,GOLD,3);c.restore();
+            // badge
+            rr(c,cx+cw/2-60,cardsY-16,120,30,15,GOLD);
+            c.fillStyle='#000';c.font='800 15px "Segoe UI",sans-serif';c.textAlign='center';c.textBaseline='middle';
+            c.fillText('⭐ POPULAIRE',cx+cw/2,cardsY-1);
+        }
+
+        // Top glow circle
+        var gcx=cx+cw/2, gcy=cardsY+65;
+        var grd=c.createRadialGradient(gcx,gcy,0,gcx,gcy,60);
+        grd.addColorStop(0,p.glow+'44');grd.addColorStop(1,'rgba(0,0,0,0)');
+        c.fillStyle=grd;c.fillRect(gcx-60,gcy-60,120,120);
+
+        // Icon
+        c.font='52px "Segoe UI Emoji","Segoe UI",sans-serif';c.textAlign='center';c.textBaseline='middle';
+        c.fillText(p.icon,gcx,gcy);
+
+        // Duration
+        c.fillStyle='rgba(255,255,255,0.8)';c.font='600 18px "Segoe UI",sans-serif';
+        c.fillText(p.dur,gcx,cardsY+115);
+
+        // Divider
+        rr(c,cx+20,cardsY+135,cw-40,2,1,p.glow+'66');
+
+        // BIG PRICE
+        c.fillStyle='#fff';c.font='900 72px "Segoe UI",sans-serif';
+        c.fillText(p.price,gcx-8,cardsY+200);
+        c.fillStyle=GOLD;c.font='900 36px "Segoe UI",sans-serif';
+        c.fillText(p.unit,gcx+35,cardsY+185);
+
+        // Sub label
+        c.fillStyle=p.glow;c.font='700 17px "Segoe UI",sans-serif';
+        c.fillText(p.sub,gcx,cardsY+250);
+
+        // Bottom accent bar
+        rr(c,cx+cw/2-30,cardsY+ch-18,60,5,3,p.glow);
+    });
+
+    // ═══ KEY INFO — 3 icon badges ═══
+    var badgeY=cardsY+ch+45;
+    var badges=[
+        {icon:'✅',text:'Publication gratuite',color:G800},
+        {icon:'📱',text:'Formulaire simple',color:'#1565C0'},
+        {icon:'💳',text:'Payement Mobile Money',color:'#E65100'},
+    ];
+    var bw=(LW-100)/3;
+    badges.forEach(function(b,i){
+        var bx=50+i*bw, bcx=bx+bw/2;
+        rr(c,bx+5,badgeY,bw-10,70,16,'rgba(255,255,255,0.04)',b.color+'55',1.5);
+        c.font='28px "Segoe UI Emoji","Segoe UI",sans-serif';c.textAlign='center';c.textBaseline='middle';
+        c.fillText(b.icon,bcx-100,badgeY+35);
+        c.fillStyle='#fff';c.font='600 20px "Segoe UI",sans-serif';c.textAlign='left';
+        c.fillText(b.text,bcx-72,badgeY+37);
+    });
+
+    // ═══ HOW IT WORKS — minimal 4-step visual ═══
+    var howY=badgeY+100;
+    c.fillStyle='#fff';c.font='800 28px "Segoe UI",sans-serif';c.textAlign='center';c.textBaseline='middle';
+    c.fillText('Comment ça marche ?',LW/2,howY);
+
+    var stepsData=[
+        {icon:'📝',label:'Soumettez'},
+        {icon:'📅',label:'Choisissez la durée'},
+        {icon:'✅',label:'Validation'},
+        {icon:'🌟',label:'Visible !'},
+    ];
+    var stY=howY+40, stW=160, stGap=(LW-80-stW*4)/3;
+
+    stepsData.forEach(function(s,i){
+        var sx=40+i*(stW+stGap), scx=sx+stW/2;
+
+        // Circle bg
+        c.beginPath();c.arc(scx,stY+45,42,0,Math.PI*2);
+        c.fillStyle='rgba(46,125,50,0.15)';c.fill();
+        c.strokeStyle=G400;c.lineWidth=2;c.stroke();
+
+        // Step number
+        c.beginPath();c.arc(scx+30,stY+10,14,0,Math.PI*2);
+        c.fillStyle=GOLD;c.fill();
+        c.fillStyle='#000';c.font='900 16px "Segoe UI",sans-serif';c.textAlign='center';
+        c.fillText(''+(i+1),scx+30,stY+11);
+
+        // Icon
+        c.font='40px "Segoe UI Emoji","Segoe UI",sans-serif';
+        c.fillText(s.icon,scx,stY+48);
+
+        // Label
+        c.fillStyle='#fff';c.font='600 17px "Segoe UI",sans-serif';
+        c.fillText(s.label,scx,stY+100);
+
+        // Arrow between steps
+        if(i<3){
+            c.fillStyle=G400;c.font='700 28px "Segoe UI",sans-serif';
+            c.fillText('›',sx+stW+stGap/2,stY+45);
+        }
+    });
+
+    // ═══ CTA ═══
+    var ctaY=stY+140;
+    // Glow behind CTA
+    var ctaGlow=c.createRadialGradient(LW/2,ctaY+25,0,LW/2,ctaY+25,250);
+    ctaGlow.addColorStop(0,'rgba(76,175,80,0.12)');ctaGlow.addColorStop(1,'rgba(0,0,0,0)');
+    c.fillStyle=ctaGlow;c.fillRect(0,ctaY-30,LW,110);
+
+    rr(c,LW/2-240,ctaY,480,50,25,GOLD);
+    c.fillStyle='#000';c.font='900 22px "Segoe UI",sans-serif';c.textAlign='center';c.textBaseline='middle';
+    c.fillText('Soumettez votre article !',LW/2,ctaY+26);
+
+    // ═══ FOOTER ═══
+    var fY=LH-70;
+    c.fillStyle='rgba(27,94,32,0.6)';c.fillRect(0,fY,LW,70);
+    c.fillStyle=GOLD;c.fillRect(0,fY,LW,2);
+
+    if(logoImg.complete&&logoImg.naturalWidth){
+        c.save();c.beginPath();c.arc(60,fY+35,20,0,Math.PI*2);c.clip();
+        c.drawImage(logoImg,40,fY+15,40,40);c.restore();
+    }
+    c.fillStyle='#fff';c.font='700 20px "Segoe UI",sans-serif';c.textAlign='left';c.textBaseline='middle';
+    c.fillText('Plannie Business',95,fY+28);
+    c.fillStyle=G300;c.font='400 15px "Segoe UI",sans-serif';
+    c.fillText('La vitrine de la ville • Lubumbashi',95,fY+50);
+
+    c.fillStyle='rgba(255,255,255,0.4)';c.font='400 13px "Segoe UI",sans-serif';c.textAlign='right';
+    c.fillText('© 2026 – by Havila',LW-40,fY+22);
+    c.fillStyle=GOLD;c.font='600 15px "Segoe UI",sans-serif';
+    c.fillText('plannie.onrender.com',LW-40,fY+42);
+    c.fillStyle='#25D366';c.font='700 16px "Segoe UI",sans-serif';
+    c.fillText('📞 +243 979 508 196',LW-40,fY+60);
+
+    document.getElementById('status').textContent='Affiche prête !';
+}
+
+function downloadPoster(){
+    var cv=document.getElementById('c');
+    try{
+        var a=document.createElement('a');
+        a.download='Plannie_Premium_StoryTime_v2.png';
+        a.href=cv.toDataURL('image/png');
+        a.click();
+        document.getElementById('status').textContent='✅ Image PNG téléchargée !';
+    }catch(e){document.getElementById('status').textContent='❌ Erreur: '+e.message;}
+}
+</script>
+</body>
+</html>
